@@ -3,187 +3,183 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>유아 키오스크 (5~7세)</title>
+  <title>유아 음식 주문 키오스크 (5~7세)</title>
   <style>
-    :root {
-      --bg: #fffaf2;
-      --card: #ffffff;
-      --text: #3d3d3d;
-      --primary: #7ec8ff;
-      --accent: #ffd36e;
-      --ok: #88e0a6;
-      --warn: #ffb5c1;
-      --radius: 22px;
-      --shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
-    }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body {
-      margin: 0;
-      font-family: "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
-      background: radial-gradient(circle at 10% 20%, #fff2cb 0%, transparent 40%),
-                  radial-gradient(circle at 90% 80%, #d6f0ff 0%, transparent 40%),
-                  var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
-    .header {
-      background: var(--card);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-    h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2.2rem); }
-    .clock { font-size: clamp(1rem, 2.2vw, 1.4rem); font-weight: 700; }
-    .screen { margin-top: 16px; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }
-    .menu {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 12px;
-    }
-    .btn {
-      border: none; border-radius: 18px; min-height: 105px; padding: 12px;
-      font-size: 1.1rem; font-weight: 700; cursor: pointer;
-      box-shadow: 0 5px 12px rgba(0, 0, 0, 0.08);
-      transition: transform .15s ease;
-      touch-action: manipulation;
-    }
-    .btn:active { transform: scale(.97); }
-    .b1 { background: #d6efff; } .b2 { background: #ffe7b0; }
-    .b3 { background: #ffd7df; } .b4 { background: #dcf5d9; }
-    .b5 { background: #e6ddff; } .b6 { background: #ffcfe9; }
-    .panel { display: none; }
-    .panel.active { display: block; }
-    .topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .home { border: none; background: var(--primary); border-radius: 999px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
-    .big {
-      width: 100%; min-height: 230px; border-radius: 20px; border: 3px dashed #c9c9c9;
-      background: #fff; display: flex; align-items: center; justify-content: center;
-      font-size: clamp(2.2rem, 7vw, 5rem); margin-top: 10px;
-    }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .chip { border: none; border-radius: 999px; padding: 10px 14px; font-size: 1rem; font-weight: 700; cursor: pointer; }
-    .note { margin-top: 10px; font-size: .95rem; color: #666; }
-    .draw { background: #fff; border: 3px solid #e8e8e8; border-radius: 16px; width: 100%; height: 360px; touch-action: none; }
+    :root { --bg:#fff9ef; --card:#fff; --text:#333; --main:#87ceff; --ok:#9be3b1; --warn:#ffd48a; --radius:20px; --shadow:0 8px 18px rgba(0,0,0,.09); }
+    * { box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+    body { margin:0; font-family:"Noto Sans KR","Apple SD Gothic Neo",sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:1100px; margin:0 auto; padding:16px; }
+    .header, .screen { background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); }
+    .header { padding:16px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    h1 { margin:0; font-size:clamp(1.3rem,3.2vw,2rem); }
+    .clock { font-weight:700; font-size:1.1rem; }
+    .screen { margin-top:14px; padding:16px; }
+    .steps { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
+    .step { border-radius:14px; background:#f0f0f0; padding:10px; text-align:center; font-weight:700; }
+    .step.active { background:var(--main); color:#fff; }
+    .menu-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+    .food { border:none; border-radius:16px; background:#f8fbff; min-height:110px; padding:10px; font-size:1.05rem; font-weight:700; cursor:pointer; }
+    .food:active { transform:scale(.97); }
+    .row { display:flex; flex-wrap:wrap; gap:10px; }
+    .btn { border:none; border-radius:999px; padding:12px 16px; font-weight:700; cursor:pointer; font-size:1rem; }
+    .btn.main { background:var(--main); color:white; }
+    .btn.ok { background:var(--ok); }
+    .btn.warn { background:var(--warn); }
+    .summary { margin-top:12px; border:2px dashed #ddd; border-radius:16px; padding:14px; background:#fffdf8; font-size:1.05rem; line-height:1.6; }
+    .hidden { display:none; }
+    .pay-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }
+    .pay { border:none; border-radius:16px; padding:14px; min-height:90px; font-size:1.05rem; font-weight:700; cursor:pointer; background:#eef7ff; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="header">
-      <h1>🌈 유아 키오스크 (5~7세)</h1>
-      <div class="clock" id="clock"></div>
-    </div>
-
-    <section class="screen" id="homeScreen">
-      <div class="menu">
-        <button class="btn b1" data-open="abc">🔤 알파벳</button>
-        <button class="btn b2" data-open="num">🔢 숫자 놀이</button>
-        <button class="btn b3" data-open="shape">🟠 모양/색깔</button>
-        <button class="btn b4" data-open="emotion">🙂 감정 카드</button>
-        <button class="btn b5" data-open="draw">🎨 그림판</button>
-        <button class="btn b6" data-open="break">⏰ 휴식 타이머</button>
-      </div>
-      <p class="note">터치만으로 작동하도록 크게 만들었어요. 전자칠판/태블릿 전체 화면으로 사용하세요.</p>
-    </section>
-
-    <section class="screen panel" id="panel-abc"></section>
-    <section class="screen panel" id="panel-num"></section>
-    <section class="screen panel" id="panel-shape"></section>
-    <section class="screen panel" id="panel-emotion"></section>
-    <section class="screen panel" id="panel-draw"></section>
-    <section class="screen panel" id="panel-break"></section>
+<div class="wrap">
+  <div class="header">
+    <h1>🍽️ 유아 음식 주문 키오스크</h1>
+    <div class="clock" id="clock"></div>
   </div>
 
+  <div class="screen">
+    <div class="steps">
+      <div class="step active" id="s1">1. 음식 선택</div>
+      <div class="step" id="s2">2. 포장/배달</div>
+      <div class="step" id="s3">3. 결제 방법</div>
+      <div class="step" id="s4">4. 완료</div>
+    </div>
+
+    <section id="step1">
+      <h2>먹고 싶은 음식을 터치하세요</h2>
+      <div class="menu-grid" id="foodGrid"></div>
+      <div class="summary" id="orderSummary">아직 고른 음식이 없어요.</div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn warn" id="resetOrder">처음부터</button>
+        <button class="btn main" id="toStep2">다음(포장/배달)</button>
+      </div>
+    </section>
+
+    <section id="step2" class="hidden">
+      <h2>어떻게 받을까요?</h2>
+      <div class="row">
+        <button class="btn ok" data-method="포장">🥡 포장</button>
+        <button class="btn ok" data-method="배달">🛵 배달</button>
+      </div>
+      <div class="summary" id="methodSummary">아직 선택 전</div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn warn" id="backTo1">이전</button>
+        <button class="btn main" id="toStep3">다음(결제)</button>
+      </div>
+    </section>
+
+    <section id="step3" class="hidden">
+      <h2>결제 방법을 선택하세요</h2>
+      <div class="pay-grid">
+        <button class="pay" data-pay="카드">💳 카드 결제</button>
+        <button class="pay" data-pay="현금">💵 현금 결제</button>
+        <button class="pay" data-pay="간편결제">📱 간편결제</button>
+      </div>
+      <div class="summary" id="paySummary">아직 결제 선택 전</div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn warn" id="backTo2">이전</button>
+        <button class="btn main" id="finishOrder">주문 완료</button>
+      </div>
+    </section>
+
+    <section id="step4" class="hidden">
+      <h2>🎉 주문이 완료되었어요!</h2>
+      <div class="summary" id="finalSummary"></div>
+      <div class="row" style="margin-top:12px;">
+        <button class="btn main" id="newOrder">새 주문하기</button>
+      </div>
+    </section>
+  </div>
+</div>
+
 <script>
-const speak = (text) => {
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ko-KR';
-  u.rate = 0.9;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
+const foods = [
+  { name:'치즈피자', price:12000, emoji:'🍕' },
+  { name:'햄버거 세트', price:9500, emoji:'🍔' },
+  { name:'김밥', price:4500, emoji:'🍙' },
+  { name:'우동', price:7000, emoji:'🍜' },
+  { name:'샐러드', price:6500, emoji:'🥗' },
+  { name:'주스', price:3000, emoji:'🧃' }
+];
+
+const state = { items: [], method: '', pay: '' };
+const speak = text => { const u = new SpeechSynthesisUtterance(text); u.lang='ko-KR'; speechSynthesis.cancel(); speechSynthesis.speak(u); };
+const fmt = n => n.toLocaleString('ko-KR') + '원';
+
+const foodGrid = document.getElementById('foodGrid');
+foods.forEach((f, i) => {
+  const b = document.createElement('button');
+  b.className = 'food';
+  b.innerHTML = `${f.emoji} ${f.name}<br>${fmt(f.price)}`;
+  b.onclick = () => { state.items.push(i); renderSummary(); speak(`${f.name} 추가`); };
+  foodGrid.appendChild(b);
+});
+
+function totalPrice(){
+  return state.items.reduce((sum, idx) => sum + foods[idx].price, 0);
+}
+function renderSummary(){
+  const box = document.getElementById('orderSummary');
+  if (!state.items.length) { box.textContent = '아직 고른 음식이 없어요.'; return; }
+  const names = state.items.map(i => foods[i].name).join(', ');
+  box.innerHTML = `선택 음식: <b>${names}</b><br>총 금액: <b>${fmt(totalPrice())}</b>`;
+}
+function setStep(n){
+  ['step1','step2','step3','step4'].forEach((id, i) => document.getElementById(id).classList.toggle('hidden', i !== n-1));
+  ['s1','s2','s3','s4'].forEach((id, i) => document.getElementById(id).classList.toggle('active', i === n-1));
+}
+
+// step1
+document.getElementById('resetOrder').onclick = () => { state.items=[]; state.method=''; state.pay=''; renderSummary(); speak('주문을 지웠어요'); };
+document.getElementById('toStep2').onclick = () => {
+  if (!state.items.length) { alert('음식을 먼저 선택해주세요!'); return; }
+  setStep(2); speak('포장 또는 배달을 선택하세요');
 };
 
-const home = document.getElementById('homeScreen');
-const panels = [...document.querySelectorAll('.panel')];
-const openPanel = (id) => {
-  home.style.display = 'none';
-  panels.forEach(p => p.classList.remove('active'));
-  document.getElementById('panel-' + id).classList.add('active');
+// step2
+document.querySelectorAll('[data-method]').forEach(btn => btn.onclick = () => {
+  state.method = btn.dataset.method;
+  document.getElementById('methodSummary').innerHTML = `수령 방법: <b>${state.method}</b>`;
+  speak(`${state.method} 선택`);
+});
+document.getElementById('backTo1').onclick = () => setStep(1);
+document.getElementById('toStep3').onclick = () => {
+  if (!state.method) { alert('포장 또는 배달을 선택해주세요!'); return; }
+  setStep(3); speak('결제 방법을 선택하세요');
 };
-const goHome = () => { home.style.display = 'block'; panels.forEach(p => p.classList.remove('active')); };
 
-for (const b of document.querySelectorAll('[data-open]')) b.onclick = () => openPanel(b.dataset.open);
+// step3
+document.querySelectorAll('[data-pay]').forEach(btn => btn.onclick = () => {
+  state.pay = btn.dataset.pay;
+  document.getElementById('paySummary').innerHTML = `결제 방법: <b>${state.pay}</b>`;
+  speak(`${state.pay} 결제 선택`);
+});
+document.getElementById('backTo2').onclick = () => setStep(2);
+document.getElementById('finishOrder').onclick = () => {
+  if (!state.pay) { alert('결제 방법을 선택해주세요!'); return; }
+  const names = state.items.map(i => foods[i].name).join(', ');
+  document.getElementById('finalSummary').innerHTML = `
+    음식: <b>${names}</b><br>
+    금액: <b>${fmt(totalPrice())}</b><br>
+    수령: <b>${state.method}</b><br>
+    결제: <b>${state.pay}</b><br>
+    주문번호: <b>#${Math.floor(Math.random()*900+100)}</b>
+  `;
+  setStep(4); speak('주문이 완료되었습니다');
+};
 
-function panelTemplate(title, inner) {
-  return `<div class="topline"><h2>${title}</h2><button class="home" onclick="goHome()">🏠 홈</button></div>${inner}`;
-}
-window.goHome = goHome;
+// step4
+document.getElementById('newOrder').onclick = () => {
+  state.items=[]; state.method=''; state.pay='';
+  renderSummary();
+  document.getElementById('methodSummary').textContent = '아직 선택 전';
+  document.getElementById('paySummary').textContent = '아직 결제 선택 전';
+  setStep(1);
+};
 
-const abc = 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'.split(' ');
-const abcPanel = document.getElementById('panel-abc');
-abcPanel.innerHTML = panelTemplate('🔤 알파벳', `
-  <div class="big" id="abcBox">A</div>
-  <div class="row" style="margin-top:12px"><button class="chip" id="abcNext">다음 글자</button><button class="chip" id="abcSpeak">읽어주기</button></div>
-`);
-let ai = 0; const abcBox = document.getElementById('abcBox');
-abcPanel.querySelector('#abcNext').onclick = () => { ai = (ai + 1) % abc.length; abcBox.textContent = abc[ai]; };
-abcPanel.querySelector('#abcSpeak').onclick = () => speak(`${abc[ai]} 입니다`);
-
-const numPanel = document.getElementById('panel-num');
-numPanel.innerHTML = panelTemplate('🔢 숫자 놀이', `
-  <div class="big" id="numBox">1</div>
-  <div class="row" style="margin-top:12px"><button class="chip" id="numRoll">랜덤 숫자</button><button class="chip" id="numSpeak">읽어주기</button></div>
-`);
-let currentNum = 1;
-numPanel.querySelector('#numRoll').onclick = () => { currentNum = Math.floor(Math.random() * 20) + 1; document.getElementById('numBox').textContent = currentNum; };
-numPanel.querySelector('#numSpeak').onclick = () => speak(`숫자 ${currentNum}`);
-
-const items = ['🔴 빨강 원', '🟦 파랑 네모', '🟨 노랑 네모', '🟢 초록 원', '🟣 보라 동그라미'];
-const shapePanel = document.getElementById('panel-shape');
-shapePanel.innerHTML = panelTemplate('🟠 모양/색깔', `<div class="big" id="shapeBox">${items[0]}</div><div class="row" style="margin-top:12px"><button class="chip" id="shapeNext">다음 카드</button><button class="chip" id="shapeSpeak">읽어주기</button></div>`);
-let si = 0;
-shapePanel.querySelector('#shapeNext').onclick = () => { si = (si + 1) % items.length; document.getElementById('shapeBox').textContent = items[si]; };
-shapePanel.querySelector('#shapeSpeak').onclick = () => speak(items[si]);
-
-const emotions = ['😀 기뻐요', '😢 슬퍼요', '😡 화나요', '😴 졸려요', '😮 놀랐어요'];
-const emoPanel = document.getElementById('panel-emotion');
-emoPanel.innerHTML = panelTemplate('🙂 감정 카드', `<div class="big" id="emoBox">${emotions[0]}</div><div class="row" style="margin-top:12px"><button class="chip" id="emoNext">다음 감정</button><button class="chip" id="emoSpeak">읽어주기</button></div>`);
-let ei = 0;
-emoPanel.querySelector('#emoNext').onclick = () => { ei = (ei + 1) % emotions.length; document.getElementById('emoBox').textContent = emotions[ei]; };
-emoPanel.querySelector('#emoSpeak').onclick = () => speak(emotions[ei]);
-
-const drawPanel = document.getElementById('panel-draw');
-drawPanel.innerHTML = panelTemplate('🎨 그림판', `<canvas class="draw" id="canvas"></canvas><div class="row" style="margin-top:12px"><button class="chip" id="clearCanvas">지우기</button></div>`);
-const canvas = drawPanel.querySelector('#canvas'); const ctx = canvas.getContext('2d');
-function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.strokeStyle = '#555'; }
-resize(); window.addEventListener('resize', resize);
-let drawing = false;
-function point(e){ const r=canvas.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:t.clientX-r.left,y:t.clientY-r.top}; }
-function start(e){ drawing=true; const p=point(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }
-function move(e){ if(!drawing)return; e.preventDefault(); const p=point(e); ctx.lineTo(p.x,p.y); ctx.stroke(); }
-function end(){ drawing=false; }
-canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
-canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
-drawPanel.querySelector('#clearCanvas').onclick = ()=>ctx.clearRect(0,0,canvas.width,canvas.height);
-
-const breakPanel = document.getElementById('panel-break');
-breakPanel.innerHTML = panelTemplate('⏰ 휴식 타이머', `<div class="big" id="timerBox">01:00</div><div class="row" style="margin-top:12px"><button class="chip" id="startTimer">1분 시작</button><button class="chip" id="stopTimer">정지</button></div>`);
-let tInt = null, sec = 60;
-const timerBox = breakPanel.querySelector('#timerBox');
-function drawTime(){ const m=String(Math.floor(sec/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); timerBox.textContent=`${m}:${s}`; }
-drawTime();
-breakPanel.querySelector('#startTimer').onclick = ()=>{ clearInterval(tInt); sec=60; drawTime(); tInt=setInterval(()=>{ sec--; drawTime(); if(sec<=0){ clearInterval(tInt); speak('휴식 끝! 다시 시작해요!'); alert('휴식 끝! 🎉'); } },1000); };
-breakPanel.querySelector('#stopTimer').onclick = ()=>{ clearInterval(tInt); speak('타이머를 멈췄어요'); };
-
-function updateClock(){
-  const d = new Date();
-  document.getElementById('clock').textContent = d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
-}
-updateClock(); setInterval(updateClock, 1000);
+function updateClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}); }
+updateClock(); setInterval(updateClock, 1000); renderSummary();
 </script>
 </body>
 </html>
