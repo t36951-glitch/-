@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>유아 키오스크 (5~7세)</title>
+  <style>
+    :root {
+      --bg: #fffaf2;
+      --card: #ffffff;
+      --text: #3d3d3d;
+      --primary: #7ec8ff;
+      --accent: #ffd36e;
+      --ok: #88e0a6;
+      --warn: #ffb5c1;
+      --radius: 22px;
+      --shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+      background: radial-gradient(circle at 10% 20%, #fff2cb 0%, transparent 40%),
+                  radial-gradient(circle at 90% 80%, #d6f0ff 0%, transparent 40%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .header {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    h1 { margin: 0; font-size: clamp(1.5rem, 3vw, 2.2rem); }
+    .clock { font-size: clamp(1rem, 2.2vw, 1.4rem); font-weight: 700; }
+    .screen { margin-top: 16px; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; }
+    .menu {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+    }
+    .btn {
+      border: none; border-radius: 18px; min-height: 105px; padding: 12px;
+      font-size: 1.1rem; font-weight: 700; cursor: pointer;
+      box-shadow: 0 5px 12px rgba(0, 0, 0, 0.08);
+      transition: transform .15s ease;
+      touch-action: manipulation;
+    }
+    .btn:active { transform: scale(.97); }
+    .b1 { background: #d6efff; } .b2 { background: #ffe7b0; }
+    .b3 { background: #ffd7df; } .b4 { background: #dcf5d9; }
+    .b5 { background: #e6ddff; } .b6 { background: #ffcfe9; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .topline { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .home { border: none; background: var(--primary); border-radius: 999px; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+    .big {
+      width: 100%; min-height: 230px; border-radius: 20px; border: 3px dashed #c9c9c9;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      font-size: clamp(2.2rem, 7vw, 5rem); margin-top: 10px;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .chip { border: none; border-radius: 999px; padding: 10px 14px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+    .note { margin-top: 10px; font-size: .95rem; color: #666; }
+    .draw { background: #fff; border: 3px solid #e8e8e8; border-radius: 16px; width: 100%; height: 360px; touch-action: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>🌈 유아 키오스크 (5~7세)</h1>
+      <div class="clock" id="clock"></div>
+    </div>
+
+    <section class="screen" id="homeScreen">
+      <div class="menu">
+        <button class="btn b1" data-open="abc">🔤 알파벳</button>
+        <button class="btn b2" data-open="num">🔢 숫자 놀이</button>
+        <button class="btn b3" data-open="shape">🟠 모양/색깔</button>
+        <button class="btn b4" data-open="emotion">🙂 감정 카드</button>
+        <button class="btn b5" data-open="draw">🎨 그림판</button>
+        <button class="btn b6" data-open="break">⏰ 휴식 타이머</button>
+      </div>
+      <p class="note">터치만으로 작동하도록 크게 만들었어요. 전자칠판/태블릿 전체 화면으로 사용하세요.</p>
+    </section>
+
+    <section class="screen panel" id="panel-abc"></section>
+    <section class="screen panel" id="panel-num"></section>
+    <section class="screen panel" id="panel-shape"></section>
+    <section class="screen panel" id="panel-emotion"></section>
+    <section class="screen panel" id="panel-draw"></section>
+    <section class="screen panel" id="panel-break"></section>
+  </div>
+
+<script>
+const speak = (text) => {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ko-KR';
+  u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+};
+
+const home = document.getElementById('homeScreen');
+const panels = [...document.querySelectorAll('.panel')];
+const openPanel = (id) => {
+  home.style.display = 'none';
+  panels.forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+};
+const goHome = () => { home.style.display = 'block'; panels.forEach(p => p.classList.remove('active')); };
+
+for (const b of document.querySelectorAll('[data-open]')) b.onclick = () => openPanel(b.dataset.open);
+
+function panelTemplate(title, inner) {
+  return `<div class="topline"><h2>${title}</h2><button class="home" onclick="goHome()">🏠 홈</button></div>${inner}`;
+}
+window.goHome = goHome;
+
+const abc = 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'.split(' ');
+const abcPanel = document.getElementById('panel-abc');
+abcPanel.innerHTML = panelTemplate('🔤 알파벳', `
+  <div class="big" id="abcBox">A</div>
+  <div class="row" style="margin-top:12px"><button class="chip" id="abcNext">다음 글자</button><button class="chip" id="abcSpeak">읽어주기</button></div>
+`);
+let ai = 0; const abcBox = document.getElementById('abcBox');
+abcPanel.querySelector('#abcNext').onclick = () => { ai = (ai + 1) % abc.length; abcBox.textContent = abc[ai]; };
+abcPanel.querySelector('#abcSpeak').onclick = () => speak(`${abc[ai]} 입니다`);
+
+const numPanel = document.getElementById('panel-num');
+numPanel.innerHTML = panelTemplate('🔢 숫자 놀이', `
+  <div class="big" id="numBox">1</div>
+  <div class="row" style="margin-top:12px"><button class="chip" id="numRoll">랜덤 숫자</button><button class="chip" id="numSpeak">읽어주기</button></div>
+`);
+let currentNum = 1;
+numPanel.querySelector('#numRoll').onclick = () => { currentNum = Math.floor(Math.random() * 20) + 1; document.getElementById('numBox').textContent = currentNum; };
+numPanel.querySelector('#numSpeak').onclick = () => speak(`숫자 ${currentNum}`);
+
+const items = ['🔴 빨강 원', '🟦 파랑 네모', '🟨 노랑 네모', '🟢 초록 원', '🟣 보라 동그라미'];
+const shapePanel = document.getElementById('panel-shape');
+shapePanel.innerHTML = panelTemplate('🟠 모양/색깔', `<div class="big" id="shapeBox">${items[0]}</div><div class="row" style="margin-top:12px"><button class="chip" id="shapeNext">다음 카드</button><button class="chip" id="shapeSpeak">읽어주기</button></div>`);
+let si = 0;
+shapePanel.querySelector('#shapeNext').onclick = () => { si = (si + 1) % items.length; document.getElementById('shapeBox').textContent = items[si]; };
+shapePanel.querySelector('#shapeSpeak').onclick = () => speak(items[si]);
+
+const emotions = ['😀 기뻐요', '😢 슬퍼요', '😡 화나요', '😴 졸려요', '😮 놀랐어요'];
+const emoPanel = document.getElementById('panel-emotion');
+emoPanel.innerHTML = panelTemplate('🙂 감정 카드', `<div class="big" id="emoBox">${emotions[0]}</div><div class="row" style="margin-top:12px"><button class="chip" id="emoNext">다음 감정</button><button class="chip" id="emoSpeak">읽어주기</button></div>`);
+let ei = 0;
+emoPanel.querySelector('#emoNext').onclick = () => { ei = (ei + 1) % emotions.length; document.getElementById('emoBox').textContent = emotions[ei]; };
+emoPanel.querySelector('#emoSpeak').onclick = () => speak(emotions[ei]);
+
+const drawPanel = document.getElementById('panel-draw');
+drawPanel.innerHTML = panelTemplate('🎨 그림판', `<canvas class="draw" id="canvas"></canvas><div class="row" style="margin-top:12px"><button class="chip" id="clearCanvas">지우기</button></div>`);
+const canvas = drawPanel.querySelector('#canvas'); const ctx = canvas.getContext('2d');
+function resize(){ canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.strokeStyle = '#555'; }
+resize(); window.addEventListener('resize', resize);
+let drawing = false;
+function point(e){ const r=canvas.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:t.clientX-r.left,y:t.clientY-r.top}; }
+function start(e){ drawing=true; const p=point(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }
+function move(e){ if(!drawing)return; e.preventDefault(); const p=point(e); ctx.lineTo(p.x,p.y); ctx.stroke(); }
+function end(){ drawing=false; }
+canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
+drawPanel.querySelector('#clearCanvas').onclick = ()=>ctx.clearRect(0,0,canvas.width,canvas.height);
+
+const breakPanel = document.getElementById('panel-break');
+breakPanel.innerHTML = panelTemplate('⏰ 휴식 타이머', `<div class="big" id="timerBox">01:00</div><div class="row" style="margin-top:12px"><button class="chip" id="startTimer">1분 시작</button><button class="chip" id="stopTimer">정지</button></div>`);
+let tInt = null, sec = 60;
+const timerBox = breakPanel.querySelector('#timerBox');
+function drawTime(){ const m=String(Math.floor(sec/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); timerBox.textContent=`${m}:${s}`; }
+drawTime();
+breakPanel.querySelector('#startTimer').onclick = ()=>{ clearInterval(tInt); sec=60; drawTime(); tInt=setInterval(()=>{ sec--; drawTime(); if(sec<=0){ clearInterval(tInt); speak('휴식 끝! 다시 시작해요!'); alert('휴식 끝! 🎉'); } },1000); };
+breakPanel.querySelector('#stopTimer').onclick = ()=>{ clearInterval(tInt); speak('타이머를 멈췄어요'); };
+
+function updateClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent = d.toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+}
+updateClock(); setInterval(updateClock, 1000);
+</script>
+</body>
+</html>
