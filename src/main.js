@@ -63,6 +63,7 @@ const wordStateEl = document.querySelector('#word-state');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
 const mpCountEl = document.querySelector('#mp-count');
+const mpFillEl = document.querySelector('#mp-fill');
 const monsterEnergyEl = document.querySelector('#monster-energy');
 const restCountdown = document.querySelector('#rest-countdown');
 const restCountdownNumber = document.querySelector('#rest-countdown-number');
@@ -174,12 +175,15 @@ function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
 
 function updateSkillHud(now = performance.now()) {
   clearArcherSkillFocusIfOutOfRange(now);
-  const ready = gameStarted && energy.current > 0 && mp.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
+  const canAttempt = gameStarted && energy.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
+  const ready = canAttempt && mp.current > 0;
   const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
   skillNameEl.textContent = currentSkillName();
   skillCooldownEl.textContent = cooldown > 0 ? `${cooldown}s` : '';
-  skillButton.disabled = !ready;
+  skillButton.disabled = !canAttempt;
+  skillButton.setAttribute('aria-disabled', String(!ready));
   skillButton.classList.toggle('is-ready', ready);
+  skillButton.classList.toggle('is-mana-empty', canAttempt && !ready);
   skillButton.classList.toggle('is-cooldown', cooldown > 0);
   skillButton.classList.toggle('is-active', now < skillState.activeUntil);
   if (skillState.shieldVisualOn && now >= skillState.shieldUntil) {
@@ -194,7 +198,7 @@ function updateSkillHud(now = performance.now()) {
       ? `${skillState.shieldHitsRemaining}회`
       : '';
   }
-  skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}`);
+  skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}${canAttempt && !ready ? ' 마나가 부족해요' : ''}`);
 }
 
 function applyProfileToHud() {
@@ -306,7 +310,14 @@ applyProfileToHud();
 if (gameStarted) startScreen.hidden = true;
 
 function updateMPHud() {
-  mpCountEl.textContent = `${mp.current}/${currentMPSettings().max}`;
+  const maximum = currentMPSettings().max;
+  mpCountEl.textContent = `${mp.current}/${maximum}`;
+  if (mpFillEl) {
+    const ratio = maximum > 0 ? mp.current / maximum : 0;
+    mpFillEl.style.width = `${ratio * 100}%`;
+    mpFillEl.parentElement?.setAttribute('aria-valuemax', String(maximum));
+    mpFillEl.parentElement?.setAttribute('aria-valuenow', String(mp.current));
+  }
 }
 
 function updateEnergyHud() {
@@ -434,7 +445,12 @@ monsterChoiceButtons.forEach((button) => button.addEventListener('click', () => 
 
 function useLearningSkill() {
   const now = performance.now();
-  if (!gameStarted || energy.current === 0 || mp.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
+  if (!gameStarted || energy.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
+  if (mp.current < 1) {
+    showNotice('마나가 없어서 스킬을 사용할 수 없습니다.', 2200);
+    updateSkillHud(now);
+    return;
+  }
   if (profile.character === 'archer') {
     const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
     const footY = player.y + player.footOffsetY;
