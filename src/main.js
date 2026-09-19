@@ -1287,7 +1287,9 @@ function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
 
 function dropMonsterReward(monster = learningMonster) {
   const neededCharacter = activeStage.syllables[collectedLetters.length];
-  const needsSyllable = monster.isAdditional && Boolean(neededCharacter && !collectedLetters.includes(neededCharacter));
+  const targetItem = letterItems.find((item) => item.character === neededCharacter);
+  const targetProtector = targetItem?.protectedMonsterId ? learningMonsters.find((candidate) => candidate.id === targetItem.protectedMonsterId) : null;
+  const needsSyllable = monster.isAdditional && Boolean(neededCharacter && !collectedLetters.includes(neededCharacter) && targetItem?.unlocked && targetProtector?.resolved);
   if (monsterReward.dropped || !needsSyllable && rewardState.nonSyllableStreak >= 2) return;
   const roll = Math.random();
   const type = needsSyllable && (rewardState.nonSyllableStreak >= 2 || roll < .5)
