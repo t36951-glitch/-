@@ -23,6 +23,7 @@ const MAX_ENERGY = 5;
 const energy = { current: MAX_ENERGY };
 const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
+const automaticRest = { active: false, elapsed: 0, lastSecond: 5 };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
@@ -30,6 +31,8 @@ const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
+const restCountdown = document.querySelector('#rest-countdown');
+const restCountdownNumber = document.querySelector('#rest-countdown-number');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
 const retryCollectButton = document.querySelector('#retry-collect');
@@ -105,6 +108,47 @@ function knockBackFromLetter(item) {
   if (canMoveTo(player.x, nextY)) player.y = nextY;
 }
 
+function startAutomaticRest() {
+  if (automaticRest.active) return;
+  automaticRest.active = true;
+  automaticRest.elapsed = 0;
+  automaticRest.lastSecond = 5;
+  wrongContact.touchingItemId = null;
+  wrongContact.shieldUntil = 0;
+  wrongContact.moveLockUntil = 0;
+  restState.inside = true;
+  restState.elapsed = 0;
+  restState.recovered = false;
+  restState.noticeShown = true;
+  player.x = restArea.xCenter;
+  player.y = restArea.yCenter - player.footOffsetY;
+  restCountdownNumber.textContent = '5';
+  restCountdown.hidden = false;
+  showNotice('에너지가 부족해요. 집으로 돌아가 쉴게요.', 3200);
+}
+
+function updateAutomaticRest(delta) {
+  if (!automaticRest.active) return;
+  automaticRest.elapsed += delta;
+  const remaining = Math.max(1, 5 - Math.floor(automaticRest.elapsed));
+  if (remaining !== automaticRest.lastSecond && automaticRest.elapsed < 5) {
+    automaticRest.lastSecond = remaining;
+    restCountdownNumber.textContent = String(remaining);
+  }
+  if (automaticRest.elapsed < 5) return;
+  automaticRest.active = false;
+  automaticRest.elapsed = 0;
+  restCountdown.hidden = true;
+  energy.current = MAX_ENERGY;
+  restState.inside = true;
+  restState.elapsed = 0;
+  restState.recovered = true;
+  restState.noticeShown = true;
+  recoveryEffect = { x: restArea.xCenter, y: restArea.yCenter, life: 2 };
+  updateEnergyHud();
+  showNotice('푹 쉬었어요! 에너지가 모두 회복되었어요.', 2600);
+}
+
 function handleWrongLetterContact(item) {
   const now = performance.now();
   item.wobble = 1;
@@ -115,11 +159,12 @@ function handleWrongLetterContact(item) {
   energy.current = Math.max(0, energy.current - 1);
   knockBackFromLetter(item);
   updateEnergyHud();
-  if (energy.current === 0) showNotice('에너지가 부족해요. 집에 가서 쉬어볼까요?', 2600);
+  if (energy.current === 0) startAutomaticRest();
   else showNotice('먼저 다른 음절을 찾아볼까요?', 1800);
 }
 
 function collectNearbyLetter() {
+  if (automaticRest.active || energy.current === 0) return;
   const footY = player.y + player.footOffsetY;
   const neededCharacter = TARGET_WORD[collectedLetters.length];
   const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
@@ -465,6 +510,11 @@ function resetChallenge() {
   wrongContact.touchingItemId = null;
   wrongContact.shieldUntil = 0;
   wrongContact.moveLockUntil = 0;
+  automaticRest.active = false;
+  automaticRest.elapsed = 0;
+  automaticRest.lastSecond = 5;
+  restCountdown.hidden = true;
+  restCountdownNumber.textContent = '5';
   energy.current = MAX_ENERGY;
   recoveryEffect = null;
   restState.inside = false;
@@ -522,8 +572,11 @@ function drawCollisionDebug() {
   ctx.restore();
 }
 function update(delta) {
+  if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
+  updateAutomaticRest(delta);
   const now = performance.now();
-  const dir = now < wrongContact.moveLockUntil ? { x: 0, y: 0 } : direction();
+  const movementLocked = automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
+  const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
     const nextY = player.y + dir.y * player.speed * delta;
@@ -533,9 +586,9 @@ function update(delta) {
     if (Math.abs(dir.x) > Math.abs(dir.y)) player.facing = dir.x > 0 ? 'right' : 'left';
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
-  collectNearbyLetter();
+  if (!automaticRest.active && energy.current > 0) collectNearbyLetter();
   if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
-  updateRestZone(delta);
+  if (!automaticRest.active && energy.current > 0) updateRestZone(delta);
   updatePickupEffects(delta);
   checkDoorPassage();
   updateDoorNotice();
