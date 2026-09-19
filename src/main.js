@@ -84,12 +84,50 @@ let recoveryEffect = null;
 let monsterQuizOpen = false;
 let monsterAnswerCooldownUntil = 0;
 let monsterUnlockTimer;
+const skillButton = document.querySelector('#skill-button-0');
+const skillNameEl = document.querySelector('#skill-name-0');
+const skillCooldownEl = document.querySelector('#skill-cooldown-0');
+const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, focusItemId: null, focusUntil: 0, hintUntil: 0 };
+
+function currentSkillName() {
+  return { swordsman: '글자 방패', archer: '글자 찾기', mage: '낱말 힌트' }[profile.character];
+}
+
+function currentSkillHintMessage() {
+  if (collectedLetters.length === 0) return '첫 번째 글자는 사예요.';
+  if (collectedLetters.length === 1) return '다음 글자는 과예요.';
+  return '사과 글자를 모두 모았어요!';
+}
+
+function resetSkillState() {
+  skillState.cooldownUntil = 0;
+  skillState.activeUntil = 0;
+  skillState.shieldUntil = 0;
+  skillState.focusItemId = null;
+  skillState.focusUntil = 0;
+  skillState.hintUntil = 0;
+  hintOverlay.hidden = true;
+  updateSkillHud();
+}
+
+function updateSkillHud(now = performance.now()) {
+  const ready = gameStarted && energy.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
+  const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
+  skillNameEl.textContent = currentSkillName();
+  skillCooldownEl.textContent = cooldown > 0 ? `${cooldown}s` : '';
+  skillButton.disabled = !ready;
+  skillButton.classList.toggle('is-ready', ready);
+  skillButton.classList.toggle('is-cooldown', cooldown > 0);
+  skillButton.classList.toggle('is-active', now < skillState.activeUntil);
+  skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}`);
+}
 
 function applyProfileToHud() {
   const preset = CHARACTER_PRESETS[profile.character];
   heroNameEl.textContent = profile.name;
   heroAvatarEl.textContent = preset.avatar;
   heroAvatarEl.style.background = preset.body;
+  updateSkillHud();
 }
 
 function persistProfile() {
@@ -113,6 +151,7 @@ function startAdventure() {
   const typedName = heroNameInput.value.trim();
   profile.name = typedName || '다온';
   profile.character = selectedCharacter;
+  resetSkillState();
   gameStarted = true;
   persistProfile();
   applyProfileToHud();
@@ -191,6 +230,7 @@ function updateEnergyHud() {
   energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
   energyPipsEl.classList.toggle('is-empty', energy.current === 0);
   if (monsterEnergyEl) monsterEnergyEl.textContent = `에너지 ${energy.current}/${MAX_ENERGY}`;
+  updateSkillHud();
 }
 
 function currentHintMessage() {
@@ -296,6 +336,27 @@ function answerMonster(answer) {
 hintCloseButton.addEventListener('click', () => { hintOverlay.hidden = true; });
 monsterChoiceButtons.forEach((button) => button.addEventListener('click', () => answerMonster(button.dataset.answer)));
 
+function useLearningSkill() {
+  const now = performance.now();
+  if (!gameStarted || energy.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
+  skillState.cooldownUntil = now + 8000;
+  skillState.activeUntil = now + 5000;
+  if (profile.character === 'swordsman') {
+    skillState.shieldUntil = now + 5000;
+  } else if (profile.character === 'archer') {
+    const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
+    skillState.focusItemId = target?.id || null;
+    skillState.focusUntil = now + 5000;
+  } else {
+    skillState.hintUntil = now + 5000;
+    hintCurrentEl.textContent = currentSkillHintMessage();
+    hintOverlay.hidden = false;
+  }
+  updateSkillHud(now);
+}
+
+skillButton.addEventListener('click', useLearningSkill);
+
 function playSuccessSound() {
   try {
     successAudioContext ??= new AudioContext();
@@ -337,6 +398,7 @@ function knockBackFromLetter(item) {
 
 function startAutomaticRest() {
   if (automaticRest.active) return;
+  resetSkillState();
   automaticRest.active = true;
   automaticRest.elapsed = 0;
   automaticRest.lastSecond = 5;
@@ -386,6 +448,7 @@ function updateAutomaticRest(delta) {
 function handleWrongLetterContact(item) {
   const now = performance.now();
   item.wobble = 1;
+  if (now < skillState.shieldUntil) return;
   if (wrongContact.touchingItemId === item.id || now < wrongContact.shieldUntil) return;
   wrongContact.touchingItemId = item.id;
   wrongContact.shieldUntil = now + 1000;
@@ -677,17 +740,25 @@ function drawTreasureChest() {
 }
 
 function drawLetterItem(item) {
+  const now = performance.now();
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
   const isNeeded = item.character === TARGET_WORD[collectedLetters.length];
   const isNear = distance < 125;
-  const wobbleOffset = item.wobble ? Math.sin(performance.now() / 38) * item.wobble * 7 : 0;
-  const pulse = 1 + Math.sin(performance.now() / 240 + item.x) * 0.06;
+  const isSkillFocused = item.id === skillState.focusItemId && now < skillState.focusUntil;
+  const wobbleOffset = item.wobble ? Math.sin(now / 38) * item.wobble * 7 : 0;
+  const pulse = 1 + Math.sin(now / 240 + item.x) * 0.06;
   ctx.save();
   ctx.translate(item.x + wobbleOffset, item.y);
-  if (isNeeded || isNear) {
-    ctx.fillStyle = isNeeded ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
-    ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(performance.now() / 180) * 5, 0, Math.PI * 2); ctx.fill();
+  if (isNeeded || isNear || isSkillFocused) {
+    ctx.fillStyle = isSkillFocused ? 'rgba(255, 219, 91, .5)' : isNeeded ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
+    ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
+  }
+  if (isSkillFocused) {
+    ctx.fillStyle = '#efb44f';
+    ctx.font = 'bold 17px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('여기예요!', 0, -52 - Math.sin(now / 170) * 5);
+    ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(-7, -45); ctx.lineTo(7, -45); ctx.closePath(); ctx.fill();
   }
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
@@ -826,6 +897,7 @@ function resetChallenge() {
   hintOverlay.hidden = true;
   hintCurrentEl.textContent = currentHintMessage();
   nextLetterEl.classList.remove('is-highlighted');
+  resetSkillState();
   energy.current = MAX_ENERGY;
   recoveryEffect = null;
   restState.inside = false;
@@ -887,6 +959,7 @@ function update(delta) {
   if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
   updateAutomaticRest(delta);
   const now = performance.now();
+  updateSkillHud(now);
   const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
@@ -965,8 +1038,9 @@ function drawPlayer() {
   ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke();
   ctx.fillStyle = preset.accent; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
-  if (performance.now() < wrongContact.shieldUntil) {
-    const remaining = (wrongContact.shieldUntil - performance.now()) / 1000;
+  const shieldUntil = Math.max(wrongContact.shieldUntil, skillState.shieldUntil);
+  if (performance.now() < shieldUntil) {
+    const remaining = (shieldUntil - performance.now()) / 1000;
     ctx.save();
     ctx.globalAlpha = 0.55 + Math.sin(performance.now() / 90) * 0.16;
     ctx.strokeStyle = '#ffe78d'; ctx.lineWidth = 4;

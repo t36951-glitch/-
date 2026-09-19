@@ -100,9 +100,11 @@
           <div class="joy-ring"><div class="joy-stick"></div></div>
           <span class="joy-label up">▲</span><span class="joy-label down">▼</span><span class="joy-label left">◀</span><span class="joy-label right">▶</span>
         </div>
-        <div class="skill-tray" aria-label="스킬 자리표시자">
-          <button class="skill-slot" aria-label="스킬 준비 중"></button><button class="skill-slot" aria-label="스킬 준비 중"></button>
-          <button class="skill-slot" aria-label="스킬 준비 중"></button><button class="skill-slot" aria-label="스킬 준비 중"></button>
+        <div class="skill-tray" aria-label="학습 보조 스킬">
+          <button id="skill-button-0" class="skill-slot skill-slot-primary" type="button" aria-label="학습 스킬"><span class="skill-symbol">✦</span><span id="skill-name-0" class="skill-name">글자 방패</span><span id="skill-cooldown-0" class="skill-cooldown"></span></button>
+          <button class="skill-slot is-locked" type="button" disabled aria-label="잠긴 스킬"><span class="skill-symbol">🔒</span><span class="skill-name">잠김</span></button>
+          <button class="skill-slot is-locked" type="button" disabled aria-label="잠긴 스킬"><span class="skill-symbol">🔒</span><span class="skill-name">잠김</span></button>
+          <button class="skill-slot is-locked" type="button" disabled aria-label="잠긴 스킬"><span class="skill-symbol">🔒</span><span class="skill-name">잠김</span></button>
         </div>
       </section>
       <div class="help-toast"><span class="key-hint">WASD</span><span>또는 방향키로 산책해요</span></div>
