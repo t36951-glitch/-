@@ -33,6 +33,16 @@
       </section>
       <div id="door-notice" class="door-notice" role="status" aria-live="polite">집 안으로 들어가는 기능은 다음 단계에서 추가됩니다.</div>
       <div id="letter-notice" class="letter-notice" role="status" aria-live="polite"></div>
+      <section id="hint-overlay" class="hint-overlay" aria-live="polite" hidden>
+        <div class="hint-card">
+          <button id="hint-close" class="hint-close" type="button" aria-label="힌트 닫기">닫기</button>
+          <div class="hint-apple" aria-hidden="true">🍎</div>
+          <h2>사과 힌트</h2>
+          <p>빨갛고 맛있는 과일이에요.</p>
+          <div class="hint-goal">목표 단어: <strong>사과</strong></div>
+          <div id="hint-current" class="hint-current">첫 번째 글자는 ‘사’예요.</div>
+        </div>
+      </section>
       <div id="rest-countdown" class="rest-countdown" role="status" aria-live="polite" hidden><strong id="rest-countdown-number">5</strong><span>집에서 쉬는 중</span></div>
       <section id="success-overlay" class="success-overlay" aria-live="polite" hidden>
         <div class="success-card">

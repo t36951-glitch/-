@@ -17,6 +17,8 @@ const letterItems = [
   { id: 'sa', character: '사', x: 720, y: 430, collected: false, wobble: 0 },
   { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, wobble: 0 }
 ];
+// Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
+const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
 const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
@@ -33,11 +35,15 @@ const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
 const restCountdown = document.querySelector('#rest-countdown');
 const restCountdownNumber = document.querySelector('#rest-countdown-number');
+const hintOverlay = document.querySelector('#hint-overlay');
+const hintCloseButton = document.querySelector('#hint-close');
+const hintCurrentEl = document.querySelector('#hint-current');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
 const retryCollectButton = document.querySelector('#retry-collect');
 const retryButton = document.querySelector('#retry-button');
 let letterNoticeTimer;
+let hintHighlightTimer;
 let successAudioContext;
 let successEffect = null;
 let recoveryEffect = null;
@@ -46,6 +52,12 @@ function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
   energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
   energyPipsEl.classList.toggle('is-empty', energy.current === 0);
+}
+
+function currentHintMessage() {
+  if (collectedLetters.length === 0) return '첫 번째 글자는 ‘사’예요.';
+  if (collectedLetters.length === 1) return '다음 글자는 ‘과’예요.';
+  return '사과 글자를 모두 모았어요!';
 }
 
 function updateCollectionHud() {
@@ -68,6 +80,26 @@ function showNotice(message, duration = 1800) {
 function showLetterNotice(character) {
   showNotice(`${character} 글자를 찾았어요!`);
 }
+
+function openHint() {
+  if (automaticRest.active || energy.current === 0) return;
+  hintCurrentEl.textContent = currentHintMessage();
+  hintOverlay.hidden = false;
+  nextLetterEl.classList.add('is-highlighted');
+  window.clearTimeout(hintHighlightTimer);
+  hintHighlightTimer = window.setTimeout(() => nextLetterEl.classList.remove('is-highlighted'), 1800);
+}
+
+function checkTreasureChest() {
+  if (treasureChest.opened || automaticRest.active || energy.current === 0) return;
+  const footY = player.y + player.footOffsetY;
+  if (Math.hypot(player.x - treasureChest.x, footY - treasureChest.y) > player.radius + 30) return;
+  treasureChest.opened = true;
+  showNotice('사과 힌트를 찾았어요!', 1500);
+  openHint();
+}
+
+hintCloseButton.addEventListener('click', () => { hintOverlay.hidden = true; });
 
 function playSuccessSound() {
   try {
@@ -194,6 +226,7 @@ function updatePickupEffects(delta) {
     successEffect.life -= delta;
     if (successEffect.life <= 0) successEffect = null;
   }
+  treasureChest.sparkle += delta;
   if (recoveryEffect) {
     recoveryEffect.life -= delta;
     if (recoveryEffect.life <= 0) recoveryEffect = null;
@@ -380,6 +413,35 @@ function canMoveTo(x, y) {
   return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !isBlockedByRiver(x, y);
 }
 
+function drawTreasureChest() {
+  const footY = player.y + player.footOffsetY;
+  const distance = Math.hypot(player.x - treasureChest.x, footY - treasureChest.y);
+  const near = distance < 125 && !treasureChest.opened && energy.current > 0 && !automaticRest.active;
+  ctx.save();
+  if (near) {
+    ctx.fillStyle = 'rgba(255, 222, 104, .3)';
+    ctx.beginPath(); ctx.arc(treasureChest.x, treasureChest.y - 3, 52 + Math.sin(treasureChest.sparkle * 5) * 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(61, 98, 73, .2)';
+  ctx.beginPath(); ctx.ellipse(treasureChest.x, treasureChest.y + 28, 42, 11, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.translate(treasureChest.x, treasureChest.y);
+  ctx.fillStyle = '#a96d3e';
+  roundedRect(-34, -2, 68, 35, 8); ctx.fill();
+  ctx.strokeStyle = '#70482f'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = '#d79048';
+  if (treasureChest.opened) {
+    ctx.save(); ctx.rotate(-.18); roundedRect(-34, -34, 68, 23, 8); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#ffe48c'; ctx.beginPath(); ctx.arc(0, 8, 22, 0, Math.PI * 2); ctx.fill();
+  } else {
+    roundedRect(-34, -24, 68, 27, 8); ctx.fill();
+    ctx.fillStyle = '#f2c75b'; roundedRect(-7, 3, 14, 14, 4); ctx.fill();
+  }
+  ctx.fillStyle = '#fff4b0';
+  ctx.font = 'bold 14px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText(treasureChest.opened ? '열림' : '보물', 0, 54);
+  ctx.restore();
+}
+
 function drawLetterItem(item) {
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
@@ -515,6 +577,11 @@ function resetChallenge() {
   automaticRest.lastSecond = 5;
   restCountdown.hidden = true;
   restCountdownNumber.textContent = '5';
+  treasureChest.opened = false;
+  treasureChest.sparkle = 0;
+  hintOverlay.hidden = true;
+  hintCurrentEl.textContent = currentHintMessage();
+  nextLetterEl.classList.remove('is-highlighted');
   energy.current = MAX_ENERGY;
   recoveryEffect = null;
   restState.inside = false;
@@ -587,6 +654,7 @@ function update(delta) {
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
   if (!automaticRest.active && energy.current > 0) collectNearbyLetter();
+  checkTreasureChest();
   if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
   if (!automaticRest.active && energy.current > 0) updateRestZone(delta);
   updatePickupEffects(delta);
@@ -622,6 +690,7 @@ function drawWorld() {
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
+  drawTreasureChest();
   letterItems.filter((item) => !item.collected).forEach(drawLetterItem);
   drawPickupEffects();
   drawPlayer();
