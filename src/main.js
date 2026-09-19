@@ -30,6 +30,11 @@ const ARCHER_SKILL_DETECTION_RANGE = 250;
 const ARCHER_SKILL_COOLDOWN = 15000;
 const ARCHER_SKILL_EFFECT_DURATION = 5000;
 const ARCHER_SKILL_ARROW_DURATION = 1500;
+const MP_SETTINGS = {
+  swordsman: { max: 2, recoverySeconds: 30 },
+  archer: { max: 3, recoverySeconds: 60 },
+  mage: { max: 5, recoverySeconds: 60 }
+};
 const SYLLABLE_COLORS = {
   fill: '#fff7c7',
   border: '#e6ac4f',
@@ -46,8 +51,7 @@ const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
 const energy = { current: MAX_ENERGY };
-const MAX_MP = 5;
-const mp = { current: MAX_MP, recoveryElapsed: 0 };
+const mp = { current: MP_SETTINGS[profile.character].max, recoveryElapsed: 0, saveElapsed: 0 };
 const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
 const automaticRest = { active: false, elapsed: 0, lastSecond: 5 };
@@ -100,6 +104,35 @@ const skillButton = document.querySelector('#skill-button-0');
 const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
 const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, arrowUntil: 0, hintUntil: 0 };
+const skillChargesEl = document.querySelector('#skill-charges-0');
+
+function currentMPSettings() {
+  return MP_SETTINGS[profile.character];
+}
+
+function readPersistedMPStates() {
+  try { return JSON.parse(localStorage.getItem('letter-kingdom-mp-states') || '{}'); } catch (error) { return {}; }
+}
+
+function persistMPState(character = profile.character) {
+  try {
+    const states = readPersistedMPStates();
+    states[character] = { current: mp.current, recoveryElapsed: mp.recoveryElapsed };
+    localStorage.setItem('letter-kingdom-mp-states', JSON.stringify(states));
+  } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function loadMPState(character = profile.character) {
+  const settings = MP_SETTINGS[character];
+  const states = readPersistedMPStates();
+  const saved = states[character];
+  mp.current = Math.min(settings.max, Math.max(0, Number(saved?.current ?? settings.max)));
+  mp.recoveryElapsed = Math.max(0, Number(saved?.recoveryElapsed ?? 0));
+  mp.saveElapsed = 0;
+}
+
+loadMPState();
+window.addEventListener('beforeunload', () => persistMPState());
 
 function currentSkillName() {
   return { swordsman: '글자 방패', archer: '글자 찾기', mage: '낱말 힌트' }[profile.character];
@@ -149,9 +182,17 @@ function updateSkillHud(now = performance.now()) {
   skillButton.classList.toggle('is-ready', ready);
   skillButton.classList.toggle('is-cooldown', cooldown > 0);
   skillButton.classList.toggle('is-active', now < skillState.activeUntil);
-  if (skillState.shieldVisualOn && now >= skillState.activeUntil) {
+  if (skillState.shieldVisualOn && now >= skillState.shieldUntil) {
     skillState.shieldVisualOn = false;
+    skillState.shieldHitsRemaining = 0;
+    skillState.shieldUntil = 0;
+    skillState.activeUntil = Math.min(skillState.activeUntil, now);
     showNotice('글자 방패가 사라졌어요.', 1100);
+  }
+  if (skillChargesEl) {
+    skillChargesEl.textContent = profile.character === 'swordsman' && skillState.shieldVisualOn
+      ? `${skillState.shieldHitsRemaining}회`
+      : '';
   }
   skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}`);
 }
@@ -183,8 +224,10 @@ function showSetupStep() {
 
 function startAdventure() {
   const typedName = heroNameInput.value.trim();
+  persistMPState(profile.character);
   profile.name = typedName || '다온';
   profile.character = selectedCharacter;
+  loadMPState(profile.character);
   resetSkillState();
   gameStarted = true;
   persistProfile();
@@ -220,7 +263,10 @@ function restartAdventure() {
 
 function resetProfile() {
   if (!window.confirm('프로필을 초기화할까요? 이름과 캐릭터 선택이 지워집니다.')) return;
-  try { localStorage.removeItem('letter-kingdom-profile'); } catch (error) { /* localStorage may be unavailable */ }
+  try {
+    localStorage.removeItem('letter-kingdom-profile');
+    localStorage.removeItem('letter-kingdom-mp-states');
+  } catch (error) { /* localStorage may be unavailable */ }
   profile.name = '다온';
   profile.character = 'swordsman';
   selectedCharacter = 'swordsman';
@@ -260,7 +306,7 @@ applyProfileToHud();
 if (gameStarted) startScreen.hidden = true;
 
 function updateMPHud() {
-  mpCountEl.textContent = `${mp.current}/${MAX_MP}`;
+  mpCountEl.textContent = `${mp.current}/${currentMPSettings().max}`;
 }
 
 function updateEnergyHud() {
@@ -395,6 +441,7 @@ function useLearningSkill() {
     const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
     mp.current = Math.max(0, mp.current - 1);
     mp.recoveryElapsed = 0;
+    persistMPState();
     skillState.cooldownUntil = now + ARCHER_SKILL_COOLDOWN;
     skillState.focusItemId = null;
     skillState.focusUntil = 0;
@@ -416,11 +463,12 @@ function useLearningSkill() {
   }
   mp.current = Math.max(0, mp.current - 1);
   mp.recoveryElapsed = 0;
+  persistMPState();
   skillState.cooldownUntil = now + 10000;
   skillState.activeUntil = now + 5000;
   if (profile.character === 'swordsman') {
     skillState.shieldUntil = now + 5000;
-    skillState.shieldHitsRemaining = 1;
+    skillState.shieldHitsRemaining = 2;
     skillState.shieldVisualOn = true;
     showNotice('글자 방패가 켜졌어요!', 1200);
   } else {
@@ -530,6 +578,11 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
+  mp.current = currentMPSettings().max;
+  mp.recoveryElapsed = 0;
+  mp.saveElapsed = 0;
+  persistMPState();
+  updateMPHud();
   monsterAnswerCooldownUntil = 0;
   setMonsterChoicesDisabled(false);
   restState.inside = true;
@@ -544,10 +597,13 @@ function updateAutomaticRest(delta) {
 function consumeLearningShield() {
   const now = performance.now();
   if (now >= skillState.shieldUntil || skillState.shieldHitsRemaining <= 0) return false;
-  skillState.shieldHitsRemaining = 0;
-  skillState.shieldUntil = 0;
-  skillState.shieldVisualOn = false;
-  skillState.activeUntil = now;
+  skillState.shieldHitsRemaining -= 1;
+  if (skillState.shieldHitsRemaining === 0) {
+    skillState.shieldUntil = 0;
+    skillState.shieldVisualOn = false;
+    skillState.activeUntil = now;
+  }
+  updateSkillHud(now);
   showNotice('방어 성공!', 1200);
   return true;
 }
@@ -555,11 +611,11 @@ function consumeLearningShield() {
 function handleWrongLetterContact(item) {
   const now = performance.now();
   item.wobble = 1;
-  if (consumeLearningShield()) return;
   if (wrongContact.touchingItemId === item.id || now < wrongContact.shieldUntil) return;
   wrongContact.touchingItemId = item.id;
   wrongContact.shieldUntil = now + 1000;
   wrongContact.moveLockUntil = now + 500;
+  if (consumeLearningShield()) return;
   energy.current = Math.max(0, energy.current - 1);
   knockBackFromLetter(item);
   updateEnergyHud();
@@ -606,12 +662,22 @@ function updatePickupEffects(delta) {
 }
 
 function updateMPRecovery(delta) {
-  if (mp.current >= MAX_MP) { mp.recoveryElapsed = 0; return; }
-  mp.recoveryElapsed += delta;
-  if (mp.recoveryElapsed >= 8) {
-    mp.current = Math.min(MAX_MP, mp.current + 1);
+  const settings = currentMPSettings();
+  if (mp.current >= settings.max) {
     mp.recoveryElapsed = 0;
+    mp.saveElapsed = 0;
+    return;
+  }
+  mp.recoveryElapsed += delta;
+  mp.saveElapsed += delta;
+  if (mp.recoveryElapsed >= settings.recoverySeconds) {
+    mp.current = Math.min(settings.max, mp.current + 1);
+    mp.recoveryElapsed = 0;
+    persistMPState();
     updateMPHud();
+  } else if (mp.saveElapsed >= 1) {
+    mp.saveElapsed = 0;
+    persistMPState();
   }
 }
 
@@ -1029,8 +1095,10 @@ function resetChallenge() {
   nextLetterEl.classList.remove('is-highlighted');
   resetSkillState();
   energy.current = MAX_ENERGY;
-  mp.current = MAX_MP;
+  mp.current = currentMPSettings().max;
   mp.recoveryElapsed = 0;
+  mp.saveElapsed = 0;
+  persistMPState();
   updateMPHud();
   recoveryEffect = null;
   restState.inside = false;
