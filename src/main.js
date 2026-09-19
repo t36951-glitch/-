@@ -26,6 +26,7 @@ let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let lastTime = performance.now();
 
 const TARGET_WORD = ['사', '과'];
+const ARCHER_SKILL_DETECTION_RANGE = 250;
 const letterItems = [
   { id: 'sa', character: '사', x: 720, y: 430, collected: false, wobble: 0 },
   { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, wobble: 0 }
@@ -37,6 +38,8 @@ const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
 const energy = { current: MAX_ENERGY };
+const MAX_MP = 5;
+const mp = { current: MAX_MP, recoveryElapsed: 0 };
 const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
 const automaticRest = { active: false, elapsed: 0, lastSecond: 5 };
@@ -47,6 +50,7 @@ const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
+const mpCountEl = document.querySelector('#mp-count');
 const monsterEnergyEl = document.querySelector('#monster-energy');
 const restCountdown = document.querySelector('#rest-countdown');
 const restCountdownNumber = document.querySelector('#rest-countdown-number');
@@ -113,7 +117,7 @@ function resetSkillState() {
 }
 
 function updateSkillHud(now = performance.now()) {
-  const ready = gameStarted && energy.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
+  const ready = gameStarted && energy.current > 0 && mp.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
   const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
   skillNameEl.textContent = currentSkillName();
   skillCooldownEl.textContent = cooldown > 0 ? `${cooldown}s` : '';
@@ -231,11 +235,16 @@ heroNameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter'
 applyProfileToHud();
 if (gameStarted) startScreen.hidden = true;
 
+function updateMPHud() {
+  mpCountEl.textContent = `${mp.current}/${MAX_MP}`;
+}
+
 function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
   energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
   energyPipsEl.classList.toggle('is-empty', energy.current === 0);
   if (monsterEnergyEl) monsterEnergyEl.textContent = `에너지 ${energy.current}/${MAX_ENERGY}`;
+  updateMPHud();
   updateSkillHud();
 }
 
@@ -344,7 +353,28 @@ monsterChoiceButtons.forEach((button) => button.addEventListener('click', () => 
 
 function useLearningSkill() {
   const now = performance.now();
-  if (!gameStarted || energy.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
+  if (!gameStarted || energy.current === 0 || mp.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
+  if (profile.character === 'archer') {
+    const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
+    const footY = player.y + player.footOffsetY;
+    const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
+    if (!target || distance > ARCHER_SKILL_DETECTION_RANGE) {
+      showNotice('조금 더 가까이 가면 글자를 찾을 수 있어요.', 2200);
+      return;
+    }
+    skillState.focusItemId = target.id;
+    skillState.focusUntil = now + 5000;
+    mp.current = Math.max(0, mp.current - 1);
+    mp.recoveryElapsed = 0;
+    skillState.cooldownUntil = now + 10000;
+    skillState.activeUntil = now + 5000;
+    updateMPHud(); updateSkillHud(now);
+    showNotice('글자 찾기가 켜졌어요!', 1500);
+    playSkillSound();
+    return;
+  }
+  mp.current = Math.max(0, mp.current - 1);
+  mp.recoveryElapsed = 0;
   skillState.cooldownUntil = now + 10000;
   skillState.activeUntil = now + 5000;
   if (profile.character === 'swordsman') {
@@ -352,19 +382,13 @@ function useLearningSkill() {
     skillState.shieldHitsRemaining = 1;
     skillState.shieldVisualOn = true;
     showNotice('글자 방패가 켜졌어요!', 1200);
-  } else if (profile.character === 'archer') {
-    const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
-    skillState.focusItemId = target?.id || null;
-    skillState.focusUntil = now + 5000;
-    showNotice('글자 찾기가 켜졌어요!', 1500);
-    playSkillSound();
   } else {
     skillState.hintUntil = now + 5000;
     hintCurrentEl.textContent = currentSkillHintMessage();
     hintOverlay.hidden = false;
     showNotice('낱말 힌트를 열었어요!', 1500);
   }
-  updateSkillHud(now);
+  updateMPHud(); updateSkillHud(now);
 }
 
 skillButton.addEventListener('click', useLearningSkill);
@@ -476,16 +500,21 @@ function updateAutomaticRest(delta) {
   showNotice('푹 쉬었어요! 에너지가 모두 회복되었어요.', 2600);
 }
 
+function consumeLearningShield() {
+  const now = performance.now();
+  if (now >= skillState.shieldUntil || skillState.shieldHitsRemaining <= 0) return false;
+  skillState.shieldHitsRemaining = 0;
+  skillState.shieldUntil = 0;
+  skillState.shieldVisualOn = false;
+  skillState.activeUntil = now;
+  showNotice('방어 성공!', 1200);
+  return true;
+}
+
 function handleWrongLetterContact(item) {
   const now = performance.now();
   item.wobble = 1;
-  if (now < skillState.shieldUntil && skillState.shieldHitsRemaining > 0) {
-    skillState.shieldHitsRemaining = 0;
-    skillState.shieldUntil = 0;
-    skillState.shieldVisualOn = false;
-    showNotice('글자 방패가 막아줬어요.', 1200);
-    return;
-  }
+  if (consumeLearningShield()) return;
   if (wrongContact.touchingItemId === item.id || now < wrongContact.shieldUntil) return;
   wrongContact.touchingItemId = item.id;
   wrongContact.shieldUntil = now + 1000;
@@ -532,6 +561,16 @@ function updatePickupEffects(delta) {
   if (recoveryEffect) {
     recoveryEffect.life -= delta;
     if (recoveryEffect.life <= 0) recoveryEffect = null;
+  }
+}
+
+function updateMPRecovery(delta) {
+  if (mp.current >= MAX_MP) { mp.recoveryElapsed = 0; return; }
+  mp.recoveryElapsed += delta;
+  if (mp.recoveryElapsed >= 8) {
+    mp.current = Math.min(MAX_MP, mp.current + 1);
+    mp.recoveryElapsed = 0;
+    updateMPHud();
   }
 }
 
@@ -800,8 +839,8 @@ function drawLetterItem(item) {
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(0, 29, 31, 9, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = isNeeded ? '#fff7c7' : '#f4f5ff';
-  ctx.strokeStyle = isNeeded ? '#e6ac4f' : '#9eafd7';
+  ctx.fillStyle = '#fff7c7';
+  ctx.strokeStyle = '#e6ac4f';
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   ctx.fillStyle = isNeeded ? '#d9795f' : '#6479b2';
@@ -936,6 +975,9 @@ function resetChallenge() {
   nextLetterEl.classList.remove('is-highlighted');
   resetSkillState();
   energy.current = MAX_ENERGY;
+  mp.current = MAX_MP;
+  mp.recoveryElapsed = 0;
+  updateMPHud();
   recoveryEffect = null;
   restState.inside = false;
   restState.elapsed = 0;
@@ -995,6 +1037,7 @@ function update(delta) {
   if (!gameStarted) return;
   if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
   updateAutomaticRest(delta);
+  updateMPRecovery(delta);
   const now = performance.now();
   updateSkillHud(now);
   const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
