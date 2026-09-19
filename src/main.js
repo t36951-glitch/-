@@ -59,13 +59,18 @@ const learningMonster = {
   attackActiveUntil: 0,
   attackToken: 0,
   defeatStartedAt: 0,
-  quizResolved: false
+  quizResolved: false,
+  outOfRangeSince: 0,
+  recoveryElapsed: 0
 };
 const combat = { current: 3, max: 3, inCombat: false, lastDamageAt: 0, recoveryElapsed: 0 };
 const BASIC_ATTACK_INTERVAL = 1000;
 const MONSTER_ATTACK_INTERVAL = BASIC_ATTACK_INTERVAL / 1.2;
 const MONSTER_WARNING_DURATION = 1200;
+const MONSTER_DETECTION_RANGE = 260;
+const MONSTER_MELEE_RANGE = 155;
 const MONSTER_COMBAT_IDLE_DURATION = 5000;
+const MONSTER_HP_RECOVERY_INTERVAL = 1000;
 const COMBAT_HP_RECOVERY_INTERVAL = 15000;
 const attackState = { cooldownUntil: 0, projectiles: [], effects: [], nextId: 1 };
 const collectedLetters = [];
@@ -623,8 +628,22 @@ function knockBackFromLetter(item) {
   if (canMoveTo(player.x, nextY)) player.y = nextY;
 }
 
+function disengageTrainingMonster() {
+  if (learningMonster.resolved) return;
+  learningMonster.state = 'idle';
+  learningMonster.warningUntil = 0;
+  learningMonster.attackActiveUntil = 0;
+  learningMonster.nextAttackAt = 0;
+  learningMonster.outOfRangeSince ||= performance.now();
+  learningMonster.recoveryElapsed = 0;
+  combat.inCombat = false;
+  combat.lastDamageAt = 0;
+  combat.recoveryElapsed = 0;
+}
+
 function startAutomaticRest(reason = 'energy') {
   if (automaticRest.active) return;
+  disengageTrainingMonster();
   closeRestPrompt();
   restState.promptDismissed = true;
   resetSkillState();
@@ -671,6 +690,13 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
+  learningMonster.hp = learningMonster.maxHp;
+  learningMonster.recoveryElapsed = 0;
+  learningMonster.outOfRangeSince = 0;
+  learningMonster.state = 'idle';
+  learningMonster.warningUntil = 0;
+  learningMonster.attackActiveUntil = 0;
+  learningMonster.nextAttackAt = 0;
   combat.current = combat.max;
   combat.inCombat = false;
   combat.lastDamageAt = 0;
@@ -1084,7 +1110,7 @@ function canMoveTo(x, y) {
 function applyTrainingMonsterAttack() {
   if (learningMonster.resolved || automaticRest.active) return;
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
-  if (distance > 155) return;
+  if (distance > MONSTER_MELEE_RANGE) return;
   combat.lastDamageAt = performance.now();
   combat.recoveryElapsed = 0;
   if (consumeCombatShield()) return;
@@ -1118,7 +1144,14 @@ function updateTrainingMonster() {
   if (learningMonster.resolved || automaticRest.active || restState.promptOpen || monsterQuizOpen) return;
   const now = performance.now();
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
-  if (learningMonster.state === 'idle' && distance <= 260 && now >= learningMonster.nextAttackAt) {
+  if (distance > MONSTER_DETECTION_RANGE) {
+    learningMonster.outOfRangeSince ||= now;
+    if (now - learningMonster.outOfRangeSince >= MONSTER_COMBAT_IDLE_DURATION) disengageTrainingMonster();
+    return;
+  }
+  learningMonster.outOfRangeSince = 0;
+  learningMonster.recoveryElapsed = 0;
+  if (learningMonster.state === 'idle' && distance <= MONSTER_DETECTION_RANGE && now >= learningMonster.nextAttackAt) {
     learningMonster.state = 'warning';
     learningMonster.warningUntil = now + MONSTER_WARNING_DURATION;
     learningMonster.nextAttackAt = learningMonster.warningUntil;
@@ -1140,11 +1173,33 @@ function updateTrainingMonster() {
   if (learningMonster.state === 'idle' && learningMonster.nextAttackAt && now < learningMonster.nextAttackAt) return;
 }
 
+function updateTrainingMonsterRecovery(delta) {
+  if (learningMonster.resolved || learningMonster.hp >= learningMonster.maxHp) {
+    learningMonster.recoveryElapsed = 0;
+    return;
+  }
+  const now = performance.now();
+  const resting = automaticRest.active;
+  const outOfRange = learningMonster.outOfRangeSince && now - learningMonster.outOfRangeSince >= MONSTER_COMBAT_IDLE_DURATION;
+  if (!resting && !outOfRange) {
+    learningMonster.recoveryElapsed = 0;
+    return;
+  }
+  learningMonster.state = 'idle';
+  learningMonster.warningUntil = 0;
+  learningMonster.attackActiveUntil = 0;
+  learningMonster.recoveryElapsed += delta;
+  while (learningMonster.recoveryElapsed >= MONSTER_HP_RECOVERY_INTERVAL && learningMonster.hp < learningMonster.maxHp) {
+    learningMonster.hp = Math.min(learningMonster.maxHp, learningMonster.hp + 1);
+    learningMonster.recoveryElapsed -= MONSTER_HP_RECOVERY_INTERVAL;
+  }
+}
+
 function drawLearningMonster() {
   const now = performance.now();
   const wobble = learningMonster.resolved ? 0 : Math.sin(now / 420) * 2;
   const x = learningMonster.x; const y = learningMonster.y + wobble;
-  const near = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y) < 260;
+  const near = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y) < MONSTER_DETECTION_RANGE;
   ctx.save();
   if (learningMonster.resolved) {
     ctx.globalAlpha = .65 + Math.sin(now / 160) * .2;
@@ -1440,6 +1495,8 @@ function resetChallenge() {
   learningMonster.attackToken = 0;
   learningMonster.defeatStartedAt = 0;
   learningMonster.quizResolved = false;
+  learningMonster.outOfRangeSince = 0;
+  learningMonster.recoveryElapsed = 0;
   attackState.cooldownUntil = 0;
   attackState.projectiles.length = 0;
   attackState.effects.length = 0;
@@ -1526,6 +1583,7 @@ function update(delta) {
   const now = performance.now();
   updateSkillHud(now);
   updateTrainingMonster();
+  updateTrainingMonsterRecovery(delta);
   const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
