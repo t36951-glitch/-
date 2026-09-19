@@ -213,6 +213,10 @@ const nextStageTitle = document.querySelector('#next-stage-title');
 const nextStageMessage = document.querySelector('#next-stage-message');
 const nextStageYesButton = document.querySelector('#next-stage-yes');
 const nextStageNoButton = document.querySelector('#next-stage-no');
+const currentRegionNameEl = document.querySelector('#current-region-name');
+const regionToast = document.querySelector('#region-toast');
+const regionToastNameEl = document.querySelector('#region-toast-name');
+const regionToastMessageEl = document.querySelector('#region-toast-message');
 const retryCollectButton = document.querySelector('#retry-collect');
 const retryButton = document.querySelector('#retry-button');
 const startScreen = document.querySelector('#start-screen');
@@ -515,6 +519,8 @@ function openMenu() {
 }
 
 let activeArchive = null;
+let currentRegionId = null;
+let regionToastTimer;
 
 function renderArchive(kind) {
   activeArchive = kind;
@@ -1617,9 +1623,23 @@ const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 }
 // The right-hand house is the nearby rest place. This area is outside the doorway; no interior map is added.
 const restArea = { x: 1218, y: 560, w: 84, h: 70, xCenter: 1260, yCenter: 595 };
 const DEBUG_COLLISIONS = false;
+const FIELD_REGIONS = [
+  {
+    id: 'village', name: '반짝숲 마을', message: '반짝숲 마을에 도착했어요!', color: 'rgba(255, 239, 178, .18)',
+    areas: [{ x: 790, y: 430, w: 560, h: 500 }]
+  },
+  {
+    id: 'forest', name: '글자 숲', message: '글자 숲에 도착했어요!', color: 'rgba(107, 191, 123, .14)',
+    areas: [{ x: 90, y: 80, w: 700, h: 600 }, { x: 80, y: 860, w: 710, h: 620 }, { x: 1320, y: 100, w: 500, h: 560 }]
+  },
+  {
+    id: 'playground', name: '음절 놀이터', message: '음절 놀이터에 도착했어요!', color: 'rgba(244, 180, 101, .15)',
+    areas: [{ x: 790, y: 970, w: 610, h: 520 }, { x: 1320, y: 650, w: 470, h: 820 }, { x: 1950, y: 240, w: 330, h: 1230 }]
+  }
+];
 const STAGE_ZONES = [
   { x: 140, y: 120, w: 460, h: 390 },
-  { x: 680, y: 110, w: 390, h: 390 },
+  { x: 680, y: 110, w: 110, h: 390 },
   { x: 1320, y: 120, w: 390, h: 360 },
   { x: 120, y: 900, w: 520, h: 480 },
   { x: 720, y: 1080, w: 560, h: 390 },
@@ -1628,6 +1648,54 @@ const STAGE_ZONES = [
   { x: 1960, y: 900, w: 300, h: 440 },
   { x: 1320, y: 650, w: 390, h: 260 }
 ];
+
+function fieldRegionAt(x, y) {
+  return FIELD_REGIONS.find((region) => region.areas.some((area) => x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h)) || FIELD_REGIONS[0];
+}
+
+function updateFieldRegion() {
+  const region = fieldRegionAt(player.x, player.y + player.footOffsetY);
+  if (!region || region.id === currentRegionId) return;
+  currentRegionId = region.id;
+  currentRegionNameEl.textContent = region.name;
+  regionToastNameEl.textContent = region.name;
+  regionToastMessageEl.textContent = region.message;
+  regionToast.hidden = false;
+  regionToast.classList.add('is-visible');
+  window.clearTimeout(regionToastTimer);
+  regionToastTimer = window.setTimeout(() => {
+    regionToast.classList.remove('is-visible');
+    regionToast.hidden = true;
+  }, 2600);
+}
+
+function drawFieldRegions() {
+  FIELD_REGIONS.forEach((region) => {
+    region.areas.forEach((area) => {
+      ctx.fillStyle = region.color;
+      ctx.fillRect(area.x, area.y, area.w, area.h);
+      ctx.strokeStyle = 'rgba(255,255,255,.26)';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 10]);
+      ctx.strokeRect(area.x, area.y, area.w, area.h);
+      ctx.setLineDash([]);
+    });
+  });
+  const labels = [
+    { name: '반짝숲 마을', x: 1050, y: 455, color: '#bd8742' },
+    { name: '글자 숲', x: 420, y: 180, color: '#4f8c5e' },
+    { name: '음절 놀이터', x: 1040, y: 1110, color: '#c47a45' }
+  ];
+  labels.forEach(({ name, x, y, color }) => {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,.7)';
+    roundedRect(x - 86, y - 27, 172, 45, 14); ctx.fill();
+    ctx.fillStyle = color;
+    ctx.font = 'bold 22px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, x, y - 4);
+    ctx.restore();
+  });
+}
 
 function seededRandom(seed) {
   let value = Math.abs(Number(seed) || 1) % 2147483647;
@@ -2500,6 +2568,7 @@ function update(delta) {
   updateBasicAttacks(delta);
   checkDoorPassage();
   updateDoorNotice();
+  updateFieldRegion();
   const viewW = shell.clientWidth; const viewH = shell.clientHeight;
   camera.x += (player.x - viewW / 2 - camera.x) * Math.min(1, delta * 7);
   camera.y += (player.y - viewH / 2 - camera.y) * Math.min(1, delta * 7);
@@ -2519,6 +2588,7 @@ function drawWorld() {
   for (let x = 0; x < WORLD.width; x += 80) for (let y = 0; y < WORLD.height; y += 80) {
     if ((x / 80 + y / 80) % 3 === 0) ctx.fillRect(x + 13, y + 17, 3, 3);
   }
+  drawFieldRegions();
   // winding paths and central plaza
   ctx.strokeStyle = '#ead9a3'; ctx.lineCap = 'round'; ctx.lineWidth = 112;
   ctx.beginPath(); ctx.moveTo(-100, 780); ctx.bezierCurveTo(520, 740, 760, 840, 1180, 790); ctx.bezierCurveTo(1560, 745, 1840, 820, 2500, 700); ctx.stroke();
