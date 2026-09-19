@@ -87,7 +87,7 @@ let monsterUnlockTimer;
 const skillButton = document.querySelector('#skill-button-0');
 const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
-const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, focusItemId: null, focusUntil: 0, hintUntil: 0 };
+const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, hintUntil: 0 };
 
 function currentSkillName() {
   return { swordsman: '글자 방패', archer: '글자 찾기', mage: '낱말 힌트' }[profile.character];
@@ -103,6 +103,8 @@ function resetSkillState() {
   skillState.cooldownUntil = 0;
   skillState.activeUntil = 0;
   skillState.shieldUntil = 0;
+  skillState.shieldHitsRemaining = 0;
+  skillState.shieldVisualOn = false;
   skillState.focusItemId = null;
   skillState.focusUntil = 0;
   skillState.hintUntil = 0;
@@ -119,6 +121,10 @@ function updateSkillHud(now = performance.now()) {
   skillButton.classList.toggle('is-ready', ready);
   skillButton.classList.toggle('is-cooldown', cooldown > 0);
   skillButton.classList.toggle('is-active', now < skillState.activeUntil);
+  if (skillState.shieldVisualOn && now >= skillState.activeUntil) {
+    skillState.shieldVisualOn = false;
+    showNotice('글자 방패가 사라졌어요.', 1100);
+  }
   skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}`);
 }
 
@@ -339,18 +345,24 @@ monsterChoiceButtons.forEach((button) => button.addEventListener('click', () => 
 function useLearningSkill() {
   const now = performance.now();
   if (!gameStarted || energy.current === 0 || automaticRest.active || now < skillState.cooldownUntil) return;
-  skillState.cooldownUntil = now + 8000;
+  skillState.cooldownUntil = now + 10000;
   skillState.activeUntil = now + 5000;
   if (profile.character === 'swordsman') {
     skillState.shieldUntil = now + 5000;
+    skillState.shieldHitsRemaining = 1;
+    skillState.shieldVisualOn = true;
+    showNotice('글자 방패가 켜졌어요!', 1200);
   } else if (profile.character === 'archer') {
     const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
     skillState.focusItemId = target?.id || null;
     skillState.focusUntil = now + 5000;
+    showNotice('글자 찾기가 켜졌어요!', 1500);
+    playSkillSound();
   } else {
     skillState.hintUntil = now + 5000;
     hintCurrentEl.textContent = currentSkillHintMessage();
     hintOverlay.hidden = false;
+    showNotice('낱말 힌트를 열었어요!', 1500);
   }
   updateSkillHud(now);
 }
@@ -373,6 +385,25 @@ function playSuccessSound() {
     });
   } catch (error) {
     // Browsers that block Web Audio still receive the visual success feedback.
+  }
+}
+
+function playSkillSound() {
+  try {
+    successAudioContext ??= new AudioContext();
+    const now = successAudioContext.currentTime;
+    [659.25, 783.99, 987.77].forEach((frequency, index) => {
+      const oscillator = successAudioContext.createOscillator();
+      const gain = successAudioContext.createGain();
+      oscillator.type = 'sine'; oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + index * 0.1 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.1 + 0.22);
+      oscillator.connect(gain); gain.connect(successAudioContext.destination);
+      oscillator.start(now + index * 0.1); oscillator.stop(now + index * 0.1 + 0.24);
+    });
+  } catch (error) {
+    // Visual guidance remains available when Web Audio is blocked.
   }
 }
 
@@ -448,7 +479,13 @@ function updateAutomaticRest(delta) {
 function handleWrongLetterContact(item) {
   const now = performance.now();
   item.wobble = 1;
-  if (now < skillState.shieldUntil) return;
+  if (now < skillState.shieldUntil && skillState.shieldHitsRemaining > 0) {
+    skillState.shieldHitsRemaining = 0;
+    skillState.shieldUntil = 0;
+    skillState.shieldVisualOn = false;
+    showNotice('글자 방패가 막아줬어요.', 1200);
+    return;
+  }
   if (wrongContact.touchingItemId === item.id || now < wrongContact.shieldUntil) return;
   wrongContact.touchingItemId = item.id;
   wrongContact.shieldUntil = now + 1000;
@@ -744,14 +781,14 @@ function drawLetterItem(item) {
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
   const isNeeded = item.character === TARGET_WORD[collectedLetters.length];
-  const isNear = distance < 125;
+  const isNeededNear = isNeeded && distance < 125;
   const isSkillFocused = item.id === skillState.focusItemId && now < skillState.focusUntil;
   const wobbleOffset = item.wobble ? Math.sin(now / 38) * item.wobble * 7 : 0;
   const pulse = 1 + Math.sin(now / 240 + item.x) * 0.06;
   ctx.save();
   ctx.translate(item.x + wobbleOffset, item.y);
-  if (isNeeded || isNear || isSkillFocused) {
-    ctx.fillStyle = isSkillFocused ? 'rgba(255, 219, 91, .5)' : isNeeded ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
+  if (isNeededNear || isSkillFocused) {
+    ctx.fillStyle = isSkillFocused ? 'rgba(255, 219, 91, .5)' : isNeededNear ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
     ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
   }
   if (isSkillFocused) {
@@ -1014,6 +1051,34 @@ function drawWorld() {
   drawPickupEffects();
   drawPlayer();
   drawCollisionDebug();
+  ctx.restore();
+  drawArcherSkillOverlay();
+}
+
+function drawArcherSkillOverlay() {
+  if (profile.character !== 'archer' || performance.now() >= skillState.focusUntil || !skillState.focusItemId) return;
+  const target = letterItems.find((item) => item.id === skillState.focusItemId && !item.collected);
+  if (!target) return;
+  const w = shell.clientWidth; const h = shell.clientHeight;
+  const startX = player.x - camera.x; const startY = player.y - camera.y;
+  const rawX = target.x - camera.x; const rawY = target.y - camera.y;
+  const margin = 34;
+  const targetX = Math.max(margin, Math.min(w - margin, rawX));
+  const targetY = Math.max(margin, Math.min(h - margin, rawY));
+  ctx.save();
+  ctx.strokeStyle = 'rgba(239, 180, 79, .85)';
+  ctx.lineWidth = 4; ctx.setLineDash([10, 8]);
+  ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(targetX, targetY); ctx.stroke();
+  ctx.setLineDash([]);
+  const angle = Math.atan2(targetY - startY, targetX - startX);
+  ctx.fillStyle = '#efb44f';
+  ctx.beginPath();
+  ctx.moveTo(targetX, targetY);
+  ctx.lineTo(targetX - Math.cos(angle - .5) * 18, targetY - Math.sin(angle - .5) * 18);
+  ctx.lineTo(targetX - Math.cos(angle + .5) * 18, targetY - Math.sin(angle + .5) * 18);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 227, 107, .95)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(targetX, targetY, 23 + Math.sin(performance.now() / 120) * 4, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
 }
 function drawTree(x, y) {
