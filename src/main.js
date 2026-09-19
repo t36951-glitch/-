@@ -346,6 +346,7 @@ function startAutomaticRest() {
   monsterQuizOpen = false;
   monsterOverlay.hidden = true;
   setMonsterChoicesDisabled(true);
+  window.clearTimeout(monsterUnlockTimer);
   monsterAnswerCooldownUntil = 0;
   restState.inside = true;
   restState.elapsed = 0;
@@ -805,6 +806,7 @@ function resetChallenge() {
   wrongContact.touchingItemId = null;
   wrongContact.shieldUntil = 0;
   wrongContact.moveLockUntil = 0;
+  window.clearTimeout(monsterUnlockTimer);
   monsterAnswerCooldownUntil = 0;
   setMonsterChoicesDisabled(false);
   monsterQuizOpen = false;
