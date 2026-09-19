@@ -177,6 +177,7 @@ const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false, promptOpen: false, promptDismissed: false };
 const automaticRest = { active: false, elapsed: 0, lastSecond: 5, reason: 'energy' };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
+const stageTransition = { promptOpen: false, dismissedAtDoor: false, mode: null, nextStage: null };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
 const nextLetterEl = document.querySelector('#next-letter');
@@ -200,6 +201,12 @@ const monsterChoiceButtons = document.querySelectorAll('.monster-choice');
 const monsterFeedback = document.querySelector('#monster-feedback');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
+const successMessageEl = document.querySelector('#success-message');
+const nextStagePrompt = document.querySelector('#next-stage-prompt');
+const nextStageTitle = document.querySelector('#next-stage-title');
+const nextStageMessage = document.querySelector('#next-stage-message');
+const nextStageYesButton = document.querySelector('#next-stage-yes');
+const nextStageNoButton = document.querySelector('#next-stage-no');
 const retryCollectButton = document.querySelector('#retry-collect');
 const retryButton = document.querySelector('#retry-button');
 const startScreen = document.querySelector('#start-screen');
@@ -647,6 +654,7 @@ function applyStageUi() {
   document.querySelector('#hint-description').textContent = activeStage.hint;
   document.querySelector('#hint-goal-word').textContent = word;
   document.querySelector('#success-title').textContent = `${word} 낱말 미션 성공!`;
+  successMessageEl.textContent = '글자를 모아 문을 통과했어요.';
   document.querySelector('#monster-question').textContent = `${word}의 첫 번째 음절은 무엇일까요?`;
   const choices = [activeStage.syllables[0], activeStage.syllables[1] || '나', activeStage.syllables[2] || '다'];
   monsterChoiceButtons.forEach((button, index) => {
@@ -1005,6 +1013,11 @@ function playSkillSound() {
 function completeWord() {
   challenge.status = 'complete';
   archiveState.completedWords[activeStageWord()] = new Date().toLocaleDateString('ko-KR');
+  const savedStage = teacherStages.find((stage) => stage.id === activeStage.id);
+  if (savedStage) {
+    savedStage.completed = true;
+    persistTeacherStages();
+  }
   persistArchiveState();
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
@@ -1481,8 +1494,16 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+function isEditableTarget(target) {
+  return target instanceof HTMLElement && (target.matches('input, textarea, select, button') || target.isContentEditable);
+}
+
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
+  if (isEditableTarget(event.target)) {
+    keys.delete(key);
+    return;
+  }
   if (event.code === 'Space') {
     event.preventDefault();
     if (!event.repeat) useBasicAttack();
@@ -1950,13 +1971,88 @@ function drawStageDoor() {
   ctx.restore();
 }
 
-function checkDoorPassage() {
-  if (!challenge.doorOpen || challenge.doorPassed) return;
-  const footY = player.y + player.footOffsetY;
-  const crossedDoor = circleIntersectsRect(player.x, footY, player.radius, stageDoor) && footY < stageDoor.y + stageDoor.h / 2;
-  if (!crossedDoor) return;
+function closeNextStagePrompt() {
+  stageTransition.promptOpen = false;
+  stageTransition.mode = null;
+  stageTransition.nextStage = null;
+  nextStagePrompt.hidden = true;
+  nextStageYesButton.hidden = false;
+  nextStageNoButton.textContent = '아니요';
+}
+
+function openNextStagePrompt() {
+  const nextStageNumber = activeStage.stageNumber + 1;
+  const nextStage = teacherStages.find((stage) => stage.stageNumber === nextStageNumber);
+  const isReady = nextStage && !nextStage.locked && nextStage.displayWord && nextStage.syllables.length;
+  if (!isReady) {
+    stageTransition.mode = 'unprepared';
+    stageTransition.nextStage = null;
+    stageTransition.promptOpen = true;
+    nextStageTitle.textContent = '다음 스테이지 안내';
+    nextStageMessage.textContent = '다음 스테이지가 아직 준비되지 않았어요.';
+    nextStageYesButton.hidden = true;
+    nextStageNoButton.textContent = '확인';
+  } else {
+    stageTransition.mode = 'confirm';
+    stageTransition.nextStage = nextStage;
+    stageTransition.promptOpen = true;
+    nextStageTitle.textContent = `${nextStageNumber}스테이지로 넘어가시겠습니까?`;
+    nextStageMessage.textContent = `${nextStage.displayWord} 스테이지를 시작하면 현재 스테이지의 진행은 완료 상태로 저장돼요.`;
+    nextStageYesButton.hidden = false;
+    nextStageNoButton.textContent = '아니요';
+  }
+  nextStagePrompt.hidden = false;
+  (stageTransition.mode === 'confirm' ? nextStageYesButton : nextStageNoButton).focus();
+}
+
+function showFinalCompletion() {
   challenge.doorPassed = true;
   successOverlay.hidden = false;
+  document.querySelector('#success-title').textContent = '모든 스테이지를 완료했어요!';
+  successMessageEl.textContent = '모든 스테이지를 완료했어요!';
+}
+
+function confirmNextStage() {
+  if (!stageTransition.promptOpen || stageTransition.mode !== 'confirm' || !stageTransition.nextStage) return;
+  const nextStage = stageTransition.nextStage;
+  const nextStageRecord = teacherStages.find((stage) => stage.id === nextStage.id);
+  if (!nextStageRecord || nextStageRecord.locked || !nextStageRecord.displayWord || !nextStageRecord.syllables.length) {
+    closeNextStagePrompt();
+    stageTransition.dismissedAtDoor = true;
+    openNextStagePrompt();
+    return;
+  }
+  teacherStages.forEach((stage) => { stage.active = stage.id === nextStageRecord.id; });
+  nextStageRecord.locked = false;
+  persistTeacherStages();
+  closeNextStagePrompt();
+  stageTransition.dismissedAtDoor = false;
+  applyStage(nextStageRecord);
+}
+
+function declineNextStage() {
+  if (!stageTransition.promptOpen) return;
+  closeNextStagePrompt();
+  challenge.doorPassed = false;
+  stageTransition.dismissedAtDoor = true;
+}
+
+function checkDoorPassage() {
+  if (!challenge.doorOpen || challenge.doorPassed || stageTransition.promptOpen) return;
+  const footY = player.y + player.footOffsetY;
+  const crossedDoor = circleIntersectsRect(player.x, footY, player.radius, stageDoor) && footY < stageDoor.y + stageDoor.h / 2;
+  if (!crossedDoor) {
+    stageTransition.dismissedAtDoor = false;
+    return;
+  }
+  if (stageTransition.dismissedAtDoor) return;
+  const nextStage = teacherStages.find((stage) => stage.stageNumber === activeStage.stageNumber + 1);
+  if (!nextStage) {
+    showFinalCompletion();
+    return;
+  }
+  challenge.doorPassed = true;
+  openNextStagePrompt();
 }
 
 function resetChallenge() {
@@ -2029,6 +2125,8 @@ function resetChallenge() {
   restState.recovered = false;
   restState.noticeShown = false;
   successEffect = null;
+  closeNextStagePrompt();
+  stageTransition.dismissedAtDoor = false;
   challenge.status = 'collecting';
   challenge.doorOpen = false;
   challenge.doorPassed = false;
@@ -2041,6 +2139,8 @@ function resetChallenge() {
 
 retryCollectButton.addEventListener('click', resetChallenge);
 retryButton.addEventListener('click', resetChallenge);
+nextStageYesButton.addEventListener('click', confirmNextStage);
+nextStageNoButton.addEventListener('click', declineNextStage);
 
 function drawCollisionDebug() {
   if (!DEBUG_COLLISIONS) return;
@@ -2088,7 +2188,7 @@ function update(delta) {
   updateSkillHud(now);
   updateTrainingMonster();
   updateTrainingMonsterRecovery(delta);
-  const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
+  const movementLocked = monsterQuizOpen || automaticRest.active || stageTransition.promptOpen || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
