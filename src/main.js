@@ -47,6 +47,7 @@ const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
+const monsterEnergyEl = document.querySelector('#monster-energy');
 const restCountdown = document.querySelector('#rest-countdown');
 const restCountdownNumber = document.querySelector('#rest-countdown-number');
 const hintOverlay = document.querySelector('#hint-overlay');
@@ -81,6 +82,8 @@ let successAudioContext;
 let successEffect = null;
 let recoveryEffect = null;
 let monsterQuizOpen = false;
+let monsterAnswerCooldownUntil = 0;
+let monsterUnlockTimer;
 
 function applyProfileToHud() {
   const preset = CHARACTER_PRESETS[profile.character];
@@ -187,6 +190,7 @@ function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
   energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
   energyPipsEl.classList.toggle('is-empty', energy.current === 0);
+  if (monsterEnergyEl) monsterEnergyEl.textContent = `에너지 ${energy.current}/${MAX_ENERGY}`;
 }
 
 function currentHintMessage() {
@@ -234,10 +238,18 @@ function checkTreasureChest() {
   openHint();
 }
 
+function setMonsterChoicesDisabled(disabled) {
+  monsterChoiceButtons.forEach((button) => { button.disabled = disabled; });
+}
+
 function openMonsterQuiz() {
   if (learningMonster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
   monsterQuizOpen = true;
+  monsterAnswerCooldownUntil = 0;
   monsterFeedback.textContent = '';
+  monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
+  setMonsterChoicesDisabled(false);
+  updateEnergyHud();
   monsterOverlay.hidden = false;
   showNotice('글자 몬스터가 길을 막고 있어요.', 1800);
 }
@@ -249,15 +261,36 @@ function checkMonsterProximity() {
 }
 
 function answerMonster(answer) {
-  if (!monsterQuizOpen || automaticRest.active || energy.current === 0) return;
+  const now = performance.now();
+  if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
   if (answer === '사') {
     learningMonster.resolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
-    showNotice('잘했어요! 글자 몬스터가 길을 비켜 줍니다.', 2600);
-  } else {
-    monsterFeedback.textContent = '괜찮아요. 다시 생각해 볼까요?';
+    setMonsterChoicesDisabled(false);
+    monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
+    showNotice('잘했어요! 정답이에요.', 2200);
+    return;
   }
+  const selectedButton = [...monsterChoiceButtons].find((button) => button.dataset.answer === answer);
+  monsterAnswerCooldownUntil = now + 1000;
+  energy.current = Math.max(0, energy.current - 1);
+  updateEnergyHud();
+  if (selectedButton) selectedButton.classList.add('is-wrong');
+  monsterFeedback.textContent = '괜찮아요. 다시 생각해 볼까요?';
+  setMonsterChoicesDisabled(true);
+  if (energy.current === 0) {
+    monsterQuizOpen = false;
+    monsterOverlay.hidden = true;
+    startAutomaticRest();
+    return;
+  }
+  window.clearTimeout(monsterUnlockTimer);
+  monsterUnlockTimer = window.setTimeout(() => {
+    monsterAnswerCooldownUntil = 0;
+    setMonsterChoicesDisabled(false);
+    monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
+  }, 1000);
 }
 
 hintCloseButton.addEventListener('click', () => { hintOverlay.hidden = true; });
@@ -310,6 +343,10 @@ function startAutomaticRest() {
   wrongContact.touchingItemId = null;
   wrongContact.shieldUntil = 0;
   wrongContact.moveLockUntil = 0;
+  monsterQuizOpen = false;
+  monsterOverlay.hidden = true;
+  setMonsterChoicesDisabled(true);
+  monsterAnswerCooldownUntil = 0;
   restState.inside = true;
   restState.elapsed = 0;
   restState.recovered = false;
@@ -334,6 +371,8 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
+  monsterAnswerCooldownUntil = 0;
+  setMonsterChoicesDisabled(false);
   restState.inside = true;
   restState.elapsed = 0;
   restState.recovered = true;
@@ -766,6 +805,10 @@ function resetChallenge() {
   wrongContact.touchingItemId = null;
   wrongContact.shieldUntil = 0;
   wrongContact.moveLockUntil = 0;
+  monsterAnswerCooldownUntil = 0;
+  setMonsterChoicesDisabled(false);
+  monsterQuizOpen = false;
+  monsterOverlay.hidden = true;
   automaticRest.active = false;
   automaticRest.elapsed = 0;
   automaticRest.lastSecond = 5;
