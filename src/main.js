@@ -12,6 +12,46 @@ const touchVector = { x: 0, y: 0 };
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let lastTime = performance.now();
 
+const TARGET_WORD = ['사', '과'];
+const letterItems = [
+  { id: 'sa', character: '사', x: 720, y: 430, collected: false },
+  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false }
+];
+const collectedLetters = [];
+const pickupEffects = [];
+const collectedLettersEl = document.querySelector('#collected-letters');
+const letterCountEl = document.querySelector('#letter-count');
+const letterNotice = document.querySelector('#letter-notice');
+let letterNoticeTimer;
+
+function updateCollectionHud() {
+  collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(' · ') : '아직 없어요';
+  letterCountEl.textContent = `${collectedLetters.length}/${TARGET_WORD.length}`;
+}
+
+function showLetterNotice(character) {
+  letterNotice.textContent = `${character} 글자를 찾았어요!`;
+  letterNotice.classList.add('is-visible');
+  window.clearTimeout(letterNoticeTimer);
+  letterNoticeTimer = window.setTimeout(() => letterNotice.classList.remove('is-visible'), 1800);
+}
+
+function collectNearbyLetter() {
+  const footY = player.y + player.footOffsetY;
+  const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
+  if (!item) return;
+  item.collected = true;
+  collectedLetters.push(item.character);
+  pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
+  updateCollectionHud();
+  showLetterNotice(item.character);
+}
+
+function updatePickupEffects(delta) {
+  pickupEffects.forEach((effect) => { effect.life -= delta; });
+  while (pickupEffects.length && pickupEffects[0].life <= 0) pickupEffects.shift();
+}
+
 const trees = [
   [260, 210], [430, 310], [720, 175], [1040, 230], [1440, 180], [1780, 245], [2110, 185], [2280, 430],
   [230, 920], [410, 1120], [690, 1320], [1030, 1210], [1530, 1325], [1860, 1180], [2180, 1260], [2290, 900],
@@ -158,6 +198,50 @@ function canMoveTo(x, y) {
   return !hitsNaturalObstacle && !hitsStaticObstacle && !isBlockedByRiver(x, y);
 }
 
+function drawLetterItem(item) {
+  const footY = player.y + player.footOffsetY;
+  const distance = Math.hypot(player.x - item.x, footY - item.y);
+  const isNear = distance < 125;
+  const pulse = 1 + Math.sin(performance.now() / 240 + item.x) * 0.06;
+  ctx.save();
+  ctx.translate(item.x, item.y);
+  if (isNear) {
+    ctx.fillStyle = 'rgba(255, 223, 103, .25)';
+    ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(performance.now() / 180) * 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = 'rgba(61, 98, 73, .18)';
+  ctx.beginPath(); ctx.ellipse(0, 29, 31, 9, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff7c7';
+  ctx.strokeStyle = '#e6ac4f';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#d9795f';
+  ctx.font = 'bold 34px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(item.character, 0, 2);
+  ctx.restore();
+}
+
+function drawPickupEffects() {
+  pickupEffects.forEach((effect) => {
+    const progress = 1 - effect.life;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, effect.life);
+    ctx.fillStyle = '#fff4a5';
+    ctx.font = 'bold 25px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`+ ${effect.character}`, effect.x, effect.y - 35 - progress * 38);
+    for (let i = 0; i < 4; i += 1) {
+      const angle = i * Math.PI / 2 + progress;
+      ctx.beginPath();
+      ctx.arc(effect.x + Math.cos(angle) * (20 + progress * 22), effect.y - 8 - progress * 28 + Math.sin(angle) * (12 + progress * 12), 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  });
+}
+
 function drawCollisionDebug() {
   if (!DEBUG_COLLISIONS) return;
   ctx.save();
@@ -205,6 +289,8 @@ function update(delta) {
     if (Math.abs(dir.x) > Math.abs(dir.y)) player.facing = dir.x > 0 ? 'right' : 'left';
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
+  collectNearbyLetter();
+  updatePickupEffects(delta);
   updateDoorNotice();
   const viewW = shell.clientWidth; const viewH = shell.clientHeight;
   camera.x += (player.x - viewW / 2 - camera.x) * Math.min(1, delta * 7);
@@ -236,6 +322,8 @@ function drawWorld() {
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
+  letterItems.filter((item) => !item.collected).forEach(drawLetterItem);
+  drawPickupEffects();
   drawPlayer();
   drawCollisionDebug();
   ctx.restore();
