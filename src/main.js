@@ -5,7 +5,20 @@ const ctx = canvas.getContext('2d');
 const shell = document.querySelector('#game-shell');
 
 const WORLD = { width: 2400, height: 1600 };
+const CHARACTER_PRESETS = {
+  swordsman: { label: '검 용사', body: '#5d83d8', hair: '#6d4b43', accent: '#f3c85e', avatar: '검' },
+  archer: { label: '활 용사', body: '#65a77b', hair: '#9a633f', accent: '#efb76a', avatar: '활' },
+  mage: { label: '마법사', body: '#9a79c8', hair: '#493d73', accent: '#f6cf73', avatar: '법' }
+};
 const player = { x: 1200, y: 805, radius: 25, speed: 245, facing: 'down', bob: 0, footOffsetY: 46 };
+const savedProfile = (() => {
+  try { return JSON.parse(localStorage.getItem('letter-kingdom-profile') || 'null'); } catch (error) { return null; }
+})();
+const profile = {
+  name: savedProfile?.name || '다온',
+  character: CHARACTER_PRESETS[savedProfile?.character] ? savedProfile.character : 'swordsman'
+};
+let gameStarted = Boolean(savedProfile?.started);
 const camera = { x: 0, y: 0 };
 const keys = new Set();
 const touchVector = { x: 0, y: 0 };
@@ -42,11 +55,70 @@ const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
 const retryCollectButton = document.querySelector('#retry-collect');
 const retryButton = document.querySelector('#retry-button');
+const startScreen = document.querySelector('#start-screen');
+const welcomeStep = document.querySelector('#welcome-step');
+const setupStep = document.querySelector('#setup-step');
+const welcomeNextButton = document.querySelector('#welcome-next');
+const startGameButton = document.querySelector('#start-game');
+const heroNameInput = document.querySelector('#hero-name-input');
+const characterChoiceButtons = document.querySelectorAll('.character-choice');
+const heroNameEl = document.querySelector('#hero-name');
+const heroAvatarEl = document.querySelector('#hero-avatar');
+let selectedCharacter = profile.character;
 let letterNoticeTimer;
 let hintHighlightTimer;
 let successAudioContext;
 let successEffect = null;
 let recoveryEffect = null;
+
+function applyProfileToHud() {
+  const preset = CHARACTER_PRESETS[profile.character];
+  heroNameEl.textContent = profile.name;
+  heroAvatarEl.textContent = preset.avatar;
+  heroAvatarEl.style.background = preset.body;
+}
+
+function persistProfile() {
+  try { localStorage.setItem('letter-kingdom-profile', JSON.stringify({ ...profile, started: true })); } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function showSetupStep() {
+  welcomeStep.hidden = true;
+  setupStep.hidden = false;
+  heroNameInput.value = profile.name === '다온' ? '' : profile.name;
+  selectedCharacter = profile.character;
+  characterChoiceButtons.forEach((button) => {
+    const selected = button.dataset.character === selectedCharacter;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-checked', String(selected));
+  });
+  heroNameInput.focus();
+}
+
+function startAdventure() {
+  const typedName = heroNameInput.value.trim();
+  profile.name = typedName || '다온';
+  profile.character = selectedCharacter;
+  gameStarted = true;
+  persistProfile();
+  applyProfileToHud();
+  startScreen.hidden = true;
+  player.x = 1200; player.y = 805;
+}
+
+welcomeNextButton.addEventListener('click', showSetupStep);
+characterChoiceButtons.forEach((button) => button.addEventListener('click', () => {
+  selectedCharacter = button.dataset.character;
+  characterChoiceButtons.forEach((choice) => {
+    const selected = choice === button;
+    choice.classList.toggle('is-selected', selected);
+    choice.setAttribute('aria-checked', String(selected));
+  });
+}));
+startGameButton.addEventListener('click', startAdventure);
+heroNameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') startAdventure(); });
+applyProfileToHud();
+if (gameStarted) startScreen.hidden = true;
 
 function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
@@ -639,6 +711,7 @@ function drawCollisionDebug() {
   ctx.restore();
 }
 function update(delta) {
+  if (!gameStarted) return;
   if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
   updateAutomaticRest(delta);
   const now = performance.now();
@@ -709,15 +782,16 @@ function drawFence(x, y) { ctx.strokeStyle = '#b57c4a'; ctx.lineWidth = 8; ctx.b
 function drawHouse(x, y) { ctx.fillStyle = 'rgba(55,100,62,.18)'; ctx.beginPath(); ctx.ellipse(x + 8, y + 75, 100, 18, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff8d9'; roundedRect(x - 80, y, 160, 80, 14); ctx.fill(); ctx.fillStyle = '#e9876e'; ctx.beginPath(); ctx.moveTo(x - 100, y + 5); ctx.lineTo(x, y - 75); ctx.lineTo(x + 100, y + 5); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#8cc7d5'; roundedRect(x - 55, y + 22, 32, 28, 6); ctx.fill(); roundedRect(x + 23, y + 22, 32, 28, 6); ctx.fill(); ctx.fillStyle = '#9a6b55'; roundedRect(x - 14, y + 30, 28, 50, 6); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('작은 집', x, y + 108); }
 function drawSign(x, y) { ctx.fillStyle = '#8f603f'; ctx.fillRect(x - 5, y, 10, 70); ctx.fillStyle = '#f6c86e'; roundedRect(x - 70, y - 40, 140, 50, 12); ctx.fill(); ctx.fillStyle = '#694d3e'; ctx.font = 'bold 19px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('반짝숲 마을', x, y - 8); }
 function drawPlayer() {
+  const preset = CHARACTER_PRESETS[profile.character];
   const bounce = Math.sin(player.bob) * (direction().x || direction().y ? 3 : 0);
   const x = player.x; const y = player.y + bounce;
   ctx.fillStyle = 'rgba(50,80,60,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 29, 11, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#5d83d8'; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill();
+  ctx.fillStyle = preset.body; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill();
   ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#6d4b43'; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = preset.hair; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke();
-  ctx.fillStyle = '#f3c85e'; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = preset.accent; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
   if (performance.now() < wrongContact.shieldUntil) {
     const remaining = (wrongContact.shieldUntil - performance.now()) / 1000;
     ctx.save();

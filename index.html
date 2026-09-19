@@ -10,10 +10,31 @@
     <main id="game-shell" aria-label="숲속 글자마을 탑다운 RPG">
       <canvas id="game-canvas"></canvas>
       <div class="vignette"></div>
+      <section id="start-screen" class="start-screen" aria-label="게임 시작">
+        <div id="welcome-step" class="start-card welcome-step">
+          <div class="start-orb">한</div>
+          <p class="start-kicker">반짝숲 마을</p>
+          <h1>글자 왕국에 오신 것을 환영해요!</h1>
+          <p class="start-copy">글자를 찾고 모아 즐거운 모험을 시작해요.</p>
+          <button id="welcome-next" class="start-button" type="button">다음</button>
+        </div>
+        <div id="setup-step" class="start-card setup-step" hidden>
+          <p class="start-kicker">나만의 모험 준비</p>
+          <h2>용사님의 이름을 알려 주세요.</h2>
+          <input id="hero-name-input" class="hero-name-input" type="text" maxlength="12" autocomplete="name" placeholder="이름을 입력해 주세요" />
+          <h2>어떤 용사가 되어 모험할까요?</h2>
+          <div class="character-choices" role="radiogroup" aria-label="캐릭터 선택">
+            <button class="character-choice is-selected" type="button" data-character="swordsman" role="radio" aria-checked="true"><span class="choice-icon swordsman-icon">검</span><strong>검 용사</strong><small>씩씩하게</small></button>
+            <button class="character-choice" type="button" data-character="archer" role="radio" aria-checked="false"><span class="choice-icon archer-icon">활</span><strong>활 용사</strong><small>날쌔게</small></button>
+            <button class="character-choice" type="button" data-character="mage" role="radio" aria-checked="false"><span class="choice-icon mage-icon">법</span><strong>마법사</strong><small>신비롭게</small></button>
+          </div>
+          <button id="start-game" class="start-button" type="button">모험 시작</button>
+        </div>
+      </section>
       <section class="hud hud-top-left" aria-label="캐릭터 정보">
-        <div class="avatar">다</div>
+        <div id="hero-avatar" class="avatar">검</div>
         <div class="character-info">
-          <div class="name-row"><strong>다온</strong><span>Lv. 1</span></div>
+          <div class="name-row"><strong id="hero-name">다온</strong><span>Lv. 1</span></div>
           <div class="health-track" aria-label="체력 100%"><div class="health-fill"></div></div>
           <div class="energy-row" aria-label="학습 도전 에너지"><span>에너지</span><div class="energy-pips" id="energy-pips"><i></i><i></i><i></i><i></i><i></i></div><strong id="energy-count">5/5</strong></div>
           <small>숲속 글자마을</small>
