@@ -41,9 +41,26 @@ const SYLLABLE_COLORS = {
   text: '#d9795f'
 };
 const letterItems = [
-  { id: 'sa', character: '사', x: 720, y: 430, collected: false, wobble: 0 },
-  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, wobble: 0 }
+  { id: 'sa', character: '사', x: 720, y: 430, collected: false, disabled: false, wobble: 0 },
+  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, disabled: false, wobble: 0 }
 ];
+const monsterReward = {
+  id: 'monster-sa-reward',
+  character: '사',
+  x: 1040,
+  y: 1050,
+  active: false,
+  collected: false,
+  dropped: false,
+  wobble: 0,
+  sparkle: 0,
+  source: 'monster-reward'
+};
+
+function availableLetterItems() {
+  const mapItems = letterItems.filter((item) => !item.disabled);
+  return monsterReward.active && !monsterReward.collected ? [...mapItems, monsterReward] : mapItems;
+}
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
 const learningMonster = {
@@ -194,7 +211,7 @@ function resetSkillState() {
 
 function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
   if (profile.character !== 'archer' || !skillState.focusItemId) return;
-  const target = letterItems.find((item) => item.id === skillState.focusItemId && !item.collected);
+  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected);
   const distance = target
     ? Math.hypot(player.x - target.x, player.y + player.footOffsetY - target.y)
     : Infinity;
@@ -501,7 +518,7 @@ function useLearningSkill() {
     return;
   }
   if (profile.character === 'archer') {
-    const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
+    const target = availableLetterItems().find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
     const footY = player.y + player.footOffsetY;
     const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
     mp.current = Math.max(0, mp.current - 1);
@@ -635,7 +652,6 @@ function disengageTrainingMonster() {
   learningMonster.attackActiveUntil = 0;
   learningMonster.nextAttackAt = 0;
   learningMonster.outOfRangeSince ||= performance.now();
-  learningMonster.recoveryElapsed = 0;
   combat.inCombat = false;
   combat.lastDamageAt = 0;
   combat.recoveryElapsed = 0;
@@ -733,6 +749,23 @@ function addCombatEffect(x, y, type = 'hit') {
   attackState.effects.push({ x, y, type, life: type === 'defeat' ? 1.8 : .55, maxLife: type === 'defeat' ? 1.8 : .55 });
 }
 
+function dropMonsterSyllableReward() {
+  if (monsterReward.dropped || collectedLetters.includes(monsterReward.character)) return;
+  const mapSa = letterItems.find((item) => item.id === 'sa');
+  if (mapSa) {
+    mapSa.disabled = true;
+    mapSa.collected = false;
+  }
+  monsterReward.x = learningMonster.x + 38;
+  monsterReward.y = learningMonster.y + 24;
+  monsterReward.active = true;
+  monsterReward.collected = false;
+  monsterReward.dropped = true;
+  monsterReward.wobble = 0;
+  monsterReward.sparkle = 0;
+  showNotice('몬스터가 ‘사’ 음절을 떨어뜨렸어요!', 2400);
+}
+
 function damageTrainingMonster(amount = 1) {
   if (learningMonster.resolved || learningMonster.hp <= 0) return false;
   learningMonster.hp = Math.max(0, learningMonster.hp - amount);
@@ -749,6 +782,7 @@ function damageTrainingMonster(amount = 1) {
     attackState.projectiles.length = 0;
     addCombatEffect(learningMonster.x, learningMonster.y, 'defeat');
     showNotice('훈련 몬스터가 빛의 친구가 되었어요!', 2200);
+    dropMonsterSyllableReward();
   }
   return true;
 }
@@ -848,7 +882,7 @@ function collectNearbyLetter() {
   if (automaticRest.active || restState.promptOpen || energy.current === 0) return;
   const footY = player.y + player.footOffsetY;
   const neededCharacter = TARGET_WORD[collectedLetters.length];
-  const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
+  const item = availableLetterItems().find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
   if (!item) {
     wrongContact.touchingItemId = null;
     return;
@@ -858,11 +892,16 @@ function collectNearbyLetter() {
     return;
   }
   item.collected = true;
+  if (item.source === 'monster-reward') {
+    monsterReward.active = false;
+    monsterReward.collected = true;
+  }
   collectedLetters.push(item.character);
   pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
   wrongContact.touchingItemId = null;
   updateCollectionHud();
-  if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
+  if (item.source === 'monster-reward') showNotice('‘사’ 음절을 획득했어요!', 2200);
+  else if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
   else showLetterNotice(item.character);
   if (collectedLetters.length === TARGET_WORD.length) completeWord();
 }
@@ -1277,6 +1316,35 @@ function drawTreasureChest() {
   ctx.restore();
 }
 
+function drawMonsterReward(item) {
+  if (!item.active || item.collected) return;
+  const now = performance.now();
+  item.sparkle += .016;
+  const pulse = 1 + Math.sin(now / 180) * .08;
+  ctx.save();
+  ctx.translate(item.x, item.y);
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = 'rgba(255, 221, 91, .28)';
+  ctx.beginPath(); ctx.arc(0, 0, 48 + Math.sin(now / 150) * 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff4a2';
+  for (let index = 0; index < 6; index += 1) {
+    const angle = index * Math.PI / 3 + now / 450;
+    const radius = 37 + Math.sin(now / 130 + index) * 4;
+    ctx.beginPath(); ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#fff8c7';
+  ctx.strokeStyle = '#e3a841';
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#d56f59';
+  ctx.font = 'bold 40px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('사', 0, 2);
+  ctx.fillStyle = '#c47b45';
+  ctx.font = 'bold 14px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.fillText('보상 음절', 0, 61);
+  ctx.restore();
+}
+
 function drawLetterItem(item) {
   const now = performance.now();
   const footY = player.y + player.footOffsetY;
@@ -1464,7 +1532,12 @@ function checkDoorPassage() {
 }
 
 function resetChallenge() {
-  letterItems.forEach((item) => { item.collected = false; item.wobble = 0; });
+  letterItems.forEach((item) => { item.collected = false; item.disabled = false; item.wobble = 0; });
+  monsterReward.active = false;
+  monsterReward.collected = false;
+  monsterReward.dropped = false;
+  monsterReward.wobble = 0;
+  monsterReward.sparkle = 0;
   collectedLetters.length = 0;
   pickupEffects.length = 0;
   wrongContact.touchingItemId = null;
@@ -1636,7 +1709,8 @@ function drawWorld() {
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
   drawTreasureChest();
-  letterItems.filter((item) => !item.collected).forEach(drawLetterItem);
+  availableLetterItems().filter((item) => item.source !== 'monster-reward' && !item.collected).forEach(drawLetterItem);
+  drawMonsterReward(monsterReward);
   drawCombatAttacks();
   drawPickupEffects();
   drawPlayer();
@@ -1649,7 +1723,7 @@ function drawArcherSkillOverlay() {
   const now = performance.now();
   clearArcherSkillFocusIfOutOfRange(now);
   if (profile.character !== 'archer' || now >= skillState.arrowUntil || !skillState.focusItemId) return;
-  const target = letterItems.find((item) => item.id === skillState.focusItemId && !item.collected);
+  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected);
   if (!target) return;
   const w = shell.clientWidth; const h = shell.clientHeight;
   const startX = player.x - camera.x; const startY = player.y - camera.y;
