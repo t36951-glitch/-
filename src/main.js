@@ -25,7 +25,65 @@ const touchVector = { x: 0, y: 0 };
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let lastTime = performance.now();
 
-const TARGET_WORD = ['사', '과'];
+const STAGE_STORAGE_KEY = 'letter-kingdom-teacher-stages';
+const ACTIVE_STAGE_STORAGE_KEY = 'letter-kingdom-active-stage';
+const DEFAULT_STAGE = {
+  id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable',
+  hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
+};
+
+function splitHangulSyllables(value) {
+  return Array.from(String(value || '').replace(/\s+/g, '')).filter((character) => /^[가-힣]$/.test(character));
+}
+
+function normalizeStage(raw = {}) {
+  const syllables = splitHangulSyllables(raw.word || '').slice(0, 6);
+  const safeSyllables = syllables.length ? syllables : [...DEFAULT_STAGE.syllables];
+  return {
+    ...DEFAULT_STAGE,
+    ...raw,
+    id: raw.id || `stage-${Number(raw.stageNumber) || 1}`,
+    stageNumber: Math.max(1, Number(raw.stageNumber) || 1),
+    word: safeSyllables.join(''),
+    syllables: safeSyllables,
+    learningMode: raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
+    hint: String(raw.hint || DEFAULT_STAGE.hint).trim() || DEFAULT_STAGE.hint,
+    locked: Boolean(raw.locked),
+    active: raw.active !== false,
+    protected: raw.protected === true
+  };
+}
+
+function loadTeacherStages() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STAGE_STORAGE_KEY) || 'null');
+    const stages = Array.isArray(saved) ? saved.map(normalizeStage) : [DEFAULT_STAGE];
+    if (!stages.some((stage) => stage.id === DEFAULT_STAGE.id)) stages.unshift(DEFAULT_STAGE);
+    return stages;
+  } catch (error) { return [DEFAULT_STAGE]; }
+}
+
+const teacherStages = loadTeacherStages();
+let activeStage = normalizeStage((() => {
+  try {
+    const id = localStorage.getItem(ACTIVE_STAGE_STORAGE_KEY) || DEFAULT_STAGE.id;
+    return teacherStages.find((stage) => stage.id === id && stage.active && !stage.locked) || teacherStages.find((stage) => stage.active && !stage.locked) || DEFAULT_STAGE;
+  } catch (error) { return DEFAULT_STAGE; }
+})());
+
+function createLetterItems(syllables) {
+  const positions = [[720, 430], [1580, 1080], [620, 380], [1510, 1180], [540, 980], [1680, 420]];
+  return syllables.map((character, index) => ({
+    id: `stage-letter-${index}`,
+    character,
+    x: positions[index][0],
+    y: positions[index][1],
+    collected: false,
+    disabled: false,
+    wobble: 0
+  }));
+}
+
 const ARCHER_SKILL_DETECTION_RANGE = 250;
 const ARCHER_SKILL_COOLDOWN = 15000;
 const ARCHER_SKILL_EFFECT_DURATION = 5000;
@@ -40,10 +98,7 @@ const SYLLABLE_COLORS = {
   border: '#e6ac4f',
   text: '#d9795f'
 };
-const letterItems = [
-  { id: 'sa', character: '사', x: 720, y: 430, collected: false, disabled: false, wobble: 0 },
-  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, disabled: false, wobble: 0 }
-];
+let letterItems = createLetterItems(activeStage.syllables);
 const monsterReward = {
   id: 'monster-reward',
   type: 'syllable',
@@ -148,6 +203,20 @@ const archivePanel = document.querySelector('#archive-panel');
 const archiveTitleEl = document.querySelector('#archive-title');
 const archiveContentEl = document.querySelector('#archive-content');
 const archiveCloseButton = document.querySelector('#archive-close');
+const teacherSettingsButton = document.querySelector('#teacher-settings-button');
+const teacherPanel = document.querySelector('#teacher-panel');
+const teacherCloseButton = document.querySelector('#teacher-close');
+const teacherStageNumber = document.querySelector('#teacher-stage-number');
+const teacherWordInput = document.querySelector('#teacher-word');
+const teacherLearningMode = document.querySelector('#teacher-learning-mode');
+const teacherHintInput = document.querySelector('#teacher-hint');
+const teacherLockedInput = document.querySelector('#teacher-locked');
+const teacherActiveInput = document.querySelector('#teacher-active');
+const teacherFeedback = document.querySelector('#teacher-feedback');
+const teacherNewButton = document.querySelector('#teacher-new');
+const teacherSaveButton = document.querySelector('#teacher-save');
+const teacherStartButton = document.querySelector('#teacher-start');
+const teacherStageList = document.querySelector('#teacher-stage-list');
 let selectedCharacter = profile.character;
 let letterNoticeTimer;
 let hintHighlightTimer;
@@ -223,9 +292,9 @@ function currentSkillName() {
 }
 
 function currentSkillHintMessage() {
-  if (collectedLetters.length === 0) return '첫 번째 글자는 사예요.';
-  if (collectedLetters.length === 1) return '다음 글자는 과예요.';
-  return '사과 글자를 모두 모았어요!';
+  const next = activeStage.syllables[collectedLetters.length];
+  if (!next) return `${activeStage.syllables.join('')} 글자를 모두 모았어요!`;
+  return collectedLetters.length === 0 ? `첫 번째 글자는 ${next}예요.` : `다음 글자는 ${next}예요.`;
 }
 
 function resetSkillState() {
@@ -350,14 +419,15 @@ function renderArchive(kind) {
   archiveTitleEl.textContent = kind === 'letters' ? '글자 보관함' : kind === 'words' ? '단어 보관함' : '아이템 창고';
   if (kind === 'letters') {
     const collected = collectedLetters.length ? collectedLetters.join(' + ') : '아직 없어요';
-    const remaining = TARGET_WORD.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
-    const progress = Math.round(collectedLetters.length / TARGET_WORD.length * 100);
-    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${TARGET_WORD.join('')}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${TARGET_WORD.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
+    const remaining = activeStage.syllables.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
+    const progress = Math.round(collectedLetters.length / activeStage.syllables.length * 100);
+    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${activeStage.syllables.join('')}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${activeStage.syllables.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
     return;
   }
   if (kind === 'words') {
-    const completed = archiveState.completedWords[TARGET_WORD.join('')];
-    archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">🍎</div><div><strong>사과</strong><small>구성: 사 + 과</small></div><span class="archive-status ${completed ? '' : 'is-locked'}">${completed ? `완성 ${completed}` : '잠김'}</span></div></div>`;
+    const word = activeStage.syllables.join('');
+    const completed = archiveState.completedWords[word];
+    archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">🍎</div><div><strong>${word}</strong><small>구성: ${activeStage.syllables.join(' + ')}</small></div><span class="archive-status ${completed ? '' : 'is-locked'}">${completed ? `완성 ${completed}` : '잠김'}</span></div></div>`;
     return;
   }
   archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">💧</div><div><strong>MP 회복 물약</strong><small>MP 1 회복</small></div><span class="storage-count">${inventory.mpPotion}개</span><button class="storage-use" data-use-item="mpPotion" ${inventory.mpPotion <= 0 || mp.current >= currentMPSettings().max ? 'disabled' : ''}>사용</button></div><div class="archive-item"><div class="archive-icon">♥</div><div><strong>전투 체력 회복 물약</strong><small>전투 체력 1칸 회복</small></div><span class="storage-count">${inventory.combatPotion}개</span><button class="storage-use" data-use-item="combatPotion" ${inventory.combatPotion <= 0 || combat.current >= combat.max ? 'disabled' : ''}>사용</button></div></div>`;
@@ -431,6 +501,146 @@ function resetProfile() {
   heroNameInput.focus();
 }
 
+let editingTeacherStageId = activeStage.id;
+
+function persistTeacherStages() {
+  try { localStorage.setItem(STAGE_STORAGE_KEY, JSON.stringify(teacherStages)); } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function saveActiveStageId() {
+  try { localStorage.setItem(ACTIVE_STAGE_STORAGE_KEY, activeStage.id); } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function fillTeacherForm(stage) {
+  const normalized = normalizeStage(stage);
+  editingTeacherStageId = normalized.id;
+  teacherStageNumber.value = normalized.stageNumber;
+  teacherWordInput.value = normalized.word;
+  teacherLearningMode.value = normalized.learningMode;
+  teacherHintInput.value = normalized.hint;
+  teacherLockedInput.checked = normalized.locked;
+  teacherActiveInput.checked = normalized.active;
+}
+
+function renderTeacherStageList() {
+  teacherStageList.innerHTML = teacherStages.map((stage) => `<div class="teacher-stage-item"><div><strong>스테이지 ${stage.stageNumber} · ${stage.word}</strong><small>${stage.active ? '활성화됨' : '비활성'} · ${stage.locked ? '잠김' : '사용 가능'}</small></div><button data-teacher-load="${stage.id}" type="button">불러오기</button>${stage.protected ? '<span class="archive-status">기본</span>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}</div>`).join('');
+}
+
+function openTeacherSettings() {
+  closeMenu();
+  teacherPanel.hidden = false;
+  fillTeacherForm(activeStage);
+  renderTeacherStageList();
+  teacherFeedback.textContent = '';
+}
+
+function closeTeacherSettings() {
+  teacherPanel.hidden = true;
+}
+
+function saveTeacherStage() {
+  const rawWord = teacherWordInput.value.trim();
+  const syllables = splitHangulSyllables(rawWord || DEFAULT_STAGE.word);
+  if (syllables.length > 6) {
+    teacherFeedback.textContent = '목표 단어가 길어요. 앞의 6개 음절까지 사용합니다.';
+  } else if (!syllables.length) {
+    teacherFeedback.textContent = '단어가 비어 있어 기본 단어 사과를 사용합니다.';
+  } else {
+    teacherFeedback.textContent = `${syllables.join(' → ')} 음절이 생성되었어요.`;
+  }
+  const id = editingTeacherStageId || `stage-${Date.now()}`;
+  const stage = normalizeStage({
+    id,
+    stageNumber: teacherStageNumber.value,
+    word: syllables.slice(0, 6).join(''),
+    learningMode: teacherLearningMode.value,
+    hint: teacherHintInput.value,
+    locked: teacherLockedInput.checked,
+    active: teacherActiveInput.checked,
+    protected: id === DEFAULT_STAGE.id
+  });
+  const index = teacherStages.findIndex((item) => item.id === id);
+  if (index >= 0) teacherStages[index] = stage;
+  else teacherStages.push(stage);
+  if (stage.active) teacherStages.forEach((item) => { if (item.id !== stage.id) item.active = false; });
+  persistTeacherStages();
+  if (stage.active && !stage.locked) applyStage(stage);
+  renderTeacherStageList();
+  fillTeacherForm(stage);
+}
+
+function applyStage(stage) {
+  activeStage = normalizeStage(stage);
+  letterItems = createLetterItems(activeStage.syllables);
+  saveActiveStageId();
+  applyStageUi();
+  resetChallenge();
+}
+
+function applyStageUi() {
+  const word = activeStage.syllables.join('');
+  document.querySelector('#goal-word').textContent = word;
+  document.querySelector('#hint-title').textContent = `${word} 힌트`;
+  document.querySelector('#hint-description').textContent = activeStage.hint;
+  document.querySelector('#hint-goal-word').textContent = word;
+  document.querySelector('#success-title').textContent = `${word} 낱말 미션 성공!`;
+  document.querySelector('#monster-question').textContent = `${word}의 첫 번째 음절은 무엇일까요?`;
+  const choices = [activeStage.syllables[0], activeStage.syllables[1] || '나', activeStage.syllables[2] || '다'];
+  monsterChoiceButtons.forEach((button, index) => {
+    button.dataset.answer = choices[index];
+    button.textContent = choices[index];
+  });
+  updateCollectionHud();
+}
+
+function startTeacherStage() {
+  const stage = teacherStages.find((item) => item.id === editingTeacherStageId) || activeStage;
+  if (stage.locked || !stage.active) {
+    teacherFeedback.textContent = '잠긴 스테이지는 먼저 해제해 주세요.';
+    return;
+  }
+  stage.active = true;
+  teacherStages.forEach((item) => { if (item.id !== stage.id) item.active = false; });
+  persistTeacherStages();
+  applyStage(stage);
+  closeTeacherSettings();
+  gameStarted = true;
+  startScreen.hidden = true;
+  persistProfile();
+}
+
+teacherSettingsButton.addEventListener('click', openTeacherSettings);
+teacherCloseButton.addEventListener('click', closeTeacherSettings);
+teacherNewButton.addEventListener('click', () => {
+  const nextNumber = Math.max(...teacherStages.map((stage) => stage.stageNumber), 0) + 1;
+  fillTeacherForm(normalizeStage({ id: `stage-${Date.now()}`, stageNumber: nextNumber, word: '', active: false, locked: false }));
+  teacherWordInput.value = '';
+  teacherHintInput.value = DEFAULT_STAGE.hint;
+  teacherActiveInput.checked = false;
+  teacherLockedInput.checked = false;
+  teacherFeedback.textContent = '새 스테이지 내용을 입력해 주세요.';
+});
+teacherSaveButton.addEventListener('click', saveTeacherStage);
+teacherStartButton.addEventListener('click', startTeacherStage);
+teacherStageList.addEventListener('click', (event) => {
+  const loadButton = event.target.closest('[data-teacher-load]');
+  const deleteButton = event.target.closest('[data-teacher-delete]');
+  if (loadButton) {
+    const stage = teacherStages.find((item) => item.id === loadButton.dataset.teacherLoad);
+    if (stage) fillTeacherForm(stage);
+  }
+  if (deleteButton) {
+    const stage = teacherStages.find((item) => item.id === deleteButton.dataset.teacherDelete);
+    if (!stage || stage.protected) return;
+    if (!window.confirm(`${stage.word} 스테이지를 삭제할까요?`)) return;
+    const index = teacherStages.indexOf(stage);
+    teacherStages.splice(index, 1);
+    persistTeacherStages();
+    if (editingTeacherStageId === stage.id) fillTeacherForm(activeStage);
+    renderTeacherStageList();
+  }
+});
+
 menuButton.addEventListener('click', () => (menuPanel.hidden ? openMenu() : closeMenu()));
 changeCharacterButton.addEventListener('click', beginCharacterChange);
 restartAdventureButton.addEventListener('click', restartAdventure);
@@ -456,6 +666,7 @@ characterChoiceButtons.forEach((button) => button.addEventListener('click', () =
 startGameButton.addEventListener('click', startAdventure);
 heroNameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') startAdventure(); });
 applyProfileToHud();
+applyStageUi();
 if (gameStarted) startScreen.hidden = true;
 
 function updateMPHud() {
@@ -489,16 +700,16 @@ function updateEnergyHud() {
 }
 
 function currentHintMessage() {
-  if (collectedLetters.length === 0) return '첫 번째 글자는 ‘사’예요.';
-  if (collectedLetters.length === 1) return '다음 글자는 ‘과’예요.';
-  return '사과 글자를 모두 모았어요!';
+  const next = activeStage.syllables[collectedLetters.length];
+  if (!next) return `${activeStage.syllables.join('')} 글자를 모두 모았어요!`;
+  return collectedLetters.length === 0 ? `첫 번째 글자는 ‘${next}’예요.` : `다음 글자는 ‘${next}’예요.`;
 }
 
 function updateCollectionHud() {
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
-  letterCountEl.textContent = `${collectedLetters.length}/${TARGET_WORD.length}`;
-  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (TARGET_WORD[collectedLetters.length] || '없음');
-  wordStateEl.textContent = challenge.status === 'complete' ? '사과 완성!' : '글자를 모아 보세요!';
+  letterCountEl.textContent = `${collectedLetters.length}/${activeStage.syllables.length}`;
+  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (activeStage.syllables[collectedLetters.length] || '없음');
+  wordStateEl.textContent = challenge.status === 'complete' ? `${activeStage.syllables.join('')} 완성!` : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
   wordStateEl.classList.remove('is-wrong');
   updateEnergyHud();
@@ -529,7 +740,7 @@ function checkTreasureChest() {
   const footY = player.y + player.footOffsetY;
   if (Math.hypot(player.x - treasureChest.x, footY - treasureChest.y) > player.radius + 30) return;
   treasureChest.opened = true;
-  showNotice('사과 힌트를 찾았어요!', 1500);
+  showNotice(`${activeStage.syllables.join('')} 힌트를 찾았어요!`, 1500);
   openHint();
 }
 
@@ -558,7 +769,7 @@ function checkMonsterProximity() {
 function answerMonster(answer) {
   const now = performance.now();
   if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
-  if (answer === '사') {
+  if (answer === activeStage.syllables[0]) {
     learningMonster.quizResolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
@@ -611,7 +822,7 @@ function useLearningSkill() {
     return;
   }
   if (profile.character === 'archer') {
-    const target = availableLetterItems().find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
+    const target = availableLetterItems().find((item) => !item.collected && item.character === activeStage.syllables[collectedLetters.length]);
     const footY = player.y + player.footOffsetY;
     const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
     mp.current = Math.max(0, mp.current - 1);
@@ -720,12 +931,12 @@ function playSkillSound() {
 
 function completeWord() {
   challenge.status = 'complete';
-  archiveState.completedWords[TARGET_WORD.join('')] = new Date().toLocaleDateString('ko-KR');
+  archiveState.completedWords[activeStage.syllables.join('')] = new Date().toLocaleDateString('ko-KR');
   persistArchiveState();
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
-  showNotice('사과 완성! 문이 열렸어요.', 3000);
+  showNotice(`${activeStage.syllables.join('')} 완성! 문이 열렸어요.`, 3000);
   playSuccessSound();
 }
 
@@ -853,7 +1064,7 @@ function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
 }
 
 function dropMonsterReward() {
-  const neededCharacter = TARGET_WORD[collectedLetters.length];
+  const neededCharacter = activeStage.syllables[collectedLetters.length];
   const needsSyllable = Boolean(neededCharacter && !collectedLetters.includes(neededCharacter));
   if (monsterReward.dropped || !needsSyllable && rewardState.nonSyllableStreak >= 2) return;
   const roll = Math.random();
@@ -997,7 +1208,7 @@ function handleWrongLetterContact(item) {
 function collectNearbyLetter() {
   if (automaticRest.active || restState.promptOpen || energy.current === 0) return;
   const footY = player.y + player.footOffsetY;
-  const neededCharacter = TARGET_WORD[collectedLetters.length];
+  const neededCharacter = activeStage.syllables[collectedLetters.length];
   const item = availableLetterItems().find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
   if (!item) {
     wrongContact.touchingItemId = null;
@@ -1035,7 +1246,7 @@ function collectNearbyLetter() {
   }
   wrongContact.touchingItemId = null;
   updateCollectionHud();
-  if (collectedLetters.length === TARGET_WORD.length) completeWord();
+  if (collectedLetters.length === activeStage.syllables.length) completeWord();
 }
 
 function updatePickupEffects(delta) {
@@ -1491,7 +1702,7 @@ function drawLetterItem(item) {
   const now = performance.now();
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
-  const isNeeded = item.character === TARGET_WORD[collectedLetters.length];
+  const isNeeded = item.character === activeStage.syllables[collectedLetters.length];
   const isNeededNear = isNeeded && distance < 125;
   const isSkillFocused = item.id === skillState.focusItemId && now < skillState.focusUntil;
   const wobbleOffset = item.wobble ? Math.sin(now / 38) * item.wobble * 7 : 0;
@@ -1559,7 +1770,7 @@ function drawPickupEffects() {
     ctx.fillStyle = '#fff1a2';
     ctx.font = 'bold 30px Jua, "Apple SD Gothic Neo", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('사과 완성!', successEffect.x, successEffect.y - 48 - progress * 28);
+    ctx.fillText(`${activeStage.syllables.join('')} 완성!`, successEffect.x, successEffect.y - 48 - progress * 28);
     for (let i = 0; i < 8; i += 1) {
       const angle = i * Math.PI / 4 + progress;
       ctx.beginPath();

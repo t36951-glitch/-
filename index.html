@@ -52,6 +52,7 @@
           <button id="letter-archive-button" class="menu-action" type="button">글자 보관함</button>
           <button id="word-archive-button" class="menu-action" type="button">단어 보관함</button>
           <button id="item-storage-button" class="menu-action" type="button">아이템 창고</button>
+          <button id="teacher-settings-button" class="menu-action menu-action-teacher" type="button">교사용 설정</button>
           <button id="change-character-button" class="menu-action" type="button">캐릭터 변경</button>
           <button id="restart-adventure-button" class="menu-action" type="button">현재 모험 다시 시작</button>
           <button id="reset-profile-button" class="menu-action menu-action-soft" type="button">프로필 초기화</button>
@@ -65,9 +66,25 @@
           <div id="archive-content" class="archive-content"></div>
         </div>
       </section>
+      <section id="teacher-panel" class="teacher-panel" aria-label="교사용 설정" hidden>
+        <div class="teacher-card">
+          <div class="teacher-header"><div><p class="teacher-kicker">교사용 설정</p><h2>스테이지를 준비해요</h2></div><button id="teacher-close" class="hint-close" type="button">닫기</button></div>
+          <div class="teacher-form">
+            <label>스테이지 번호<input id="teacher-stage-number" type="number" min="1" max="99" value="1"></label>
+            <label>목표 단어<input id="teacher-word" type="text" maxlength="12" value="사과" placeholder="예: 나비"></label>
+            <label>학습 방식<select id="teacher-learning-mode"><option value="syllable">음절 모드</option><option value="jamo">자음·모음 모드</option></select></label>
+            <label>힌트 문장<textarea id="teacher-hint" rows="2">빨갛고 맛있는 과일이에요.</textarea></label>
+            <label class="teacher-check"><input id="teacher-locked" type="checkbox"> 스테이지 잠금</label>
+            <label class="teacher-check"><input id="teacher-active" type="checkbox" checked> 현재 스테이지 활성화</label>
+          </div>
+          <p id="teacher-feedback" class="teacher-feedback" role="status"></p>
+          <div class="teacher-actions"><button id="teacher-new" class="menu-action" type="button">새 스테이지</button><button id="teacher-save" class="menu-action" type="button">스테이지 저장</button><button id="teacher-start" class="menu-action menu-action-close" type="button">게임 시작</button></div>
+          <h3>저장된 스테이지</h3><div id="teacher-stage-list" class="teacher-stage-list"></div>
+        </div>
+      </section>
       <div class="location-pill"><span class="dot"></span> 반짝숲 마을</div>
       <section class="word-progress" aria-label="글자 수집 진행">
-        <div class="word-goal"><span>목표 단어</span><strong>사과</strong></div>
+        <div class="word-goal"><span>목표 단어</span><strong id="goal-word">사과</strong></div>
         <div class="word-collected"><span>수집한 글자</span><strong id="collected-letters">아직 없어요</strong></div>
         <div class="word-count"><span id="letter-count">0/2</span></div>
         <div class="word-next"><span>현재 찾아야 하는 글자</span><strong id="next-letter">사</strong></div>
@@ -79,9 +96,9 @@
         <div class="hint-card">
           <button id="hint-close" class="hint-close" type="button" aria-label="힌트 닫기">닫기</button>
           <div class="hint-apple" aria-hidden="true">🍎</div>
-          <h2>사과 힌트</h2>
-          <p>빨갛고 맛있는 과일이에요.</p>
-          <div class="hint-goal">목표 단어: <strong>사과</strong></div>
+          <h2 id="hint-title">사과 힌트</h2>
+          <p id="hint-description">빨갛고 맛있는 과일이에요.</p>
+          <div class="hint-goal">목표 단어: <strong id="hint-goal-word">사과</strong></div>
           <div id="hint-current" class="hint-current">첫 번째 글자는 ‘사’예요.</div>
         </div>
       </section>
@@ -89,7 +106,7 @@
         <div class="monster-quiz-card">
           <div class="monster-quiz-badge">글자 몬스터 문제</div>
           <div id="monster-energy" class="monster-energy">에너지 5/5</div>
-          <h2>사과의 첫 번째 음절은 무엇일까요?</h2>
+          <h2 id="monster-question">사과의 첫 번째 음절은 무엇일까요?</h2>
           <div class="monster-choices">
             <button class="monster-choice" type="button" data-answer="사">사</button>
             <button class="monster-choice" type="button" data-answer="과">과</button>
@@ -108,7 +125,7 @@
       <section id="success-overlay" class="success-overlay" aria-live="polite" hidden>
         <div class="success-card">
           <div class="success-spark">✦</div>
-          <h1>사과 낱말 미션 성공!</h1>
+          <h1 id="success-title">사과 낱말 미션 성공!</h1>
           <p>글자를 모아 문을 통과했어요.</p>
           <button id="retry-button" type="button">다시 도전하기</button>
         </div>
