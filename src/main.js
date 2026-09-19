@@ -147,7 +147,7 @@ const rewardState = { nonSyllableStreak: 0 };
 
 function availableLetterItems() {
   const mapItems = letterItems.filter((item) => !item.disabled);
-  return monsterReward.active && !monsterReward.collected ? [...mapItems, monsterReward] : mapItems;
+  return monsterReward.active && !monsterReward.collected && monsterReward.type !== 'none' ? [...mapItems, monsterReward] : mapItems;
 }
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
@@ -1286,15 +1286,30 @@ function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
 }
 
 function dropMonsterReward(monster = learningMonster) {
+  if (monsterReward.active && !monsterReward.collected) return;
   const neededCharacter = activeStage.syllables[collectedLetters.length];
   const targetItem = letterItems.find((item) => item.character === neededCharacter);
   const targetProtector = targetItem?.protectedMonsterId ? learningMonsters.find((candidate) => candidate.id === targetItem.protectedMonsterId) : null;
-  const needsSyllable = monster.isAdditional && Boolean(neededCharacter && !collectedLetters.includes(neededCharacter) && targetItem?.unlocked && targetProtector?.resolved);
-  if (monsterReward.dropped || !needsSyllable && rewardState.nonSyllableStreak >= 2) return;
-  const roll = Math.random();
-  const type = needsSyllable && (rewardState.nonSyllableStreak >= 2 || roll < .5)
-    ? 'syllable'
-    : roll < .75 ? 'mpPotion' : 'combatPotion';
+  const needsSyllable = Boolean(neededCharacter && !collectedLetters.includes(neededCharacter) && targetItem?.unlocked && targetProtector?.resolved);
+  let type;
+  if (monster.isAdditional) {
+    const roll = Math.floor(Math.random() * 10);
+    type = roll < 3 ? 'mpPotion' : roll < 6 ? 'combatPotion' : 'none';
+  } else {
+    const roll = Math.random();
+    type = needsSyllable && (rewardState.nonSyllableStreak >= 2 || roll < .5)
+      ? 'syllable'
+      : roll < .75 ? 'mpPotion' : 'combatPotion';
+  }
+  if (type === 'none') {
+    monsterReward.type = 'none';
+    monsterReward.character = '';
+    monsterReward.active = false;
+    monsterReward.collected = true;
+    monsterReward.dropped = false;
+    showNotice('이번에는 보상이 없어요. 다른 몬스터도 살펴볼까요?', 2400);
+    return;
+  }
   monsterReward.type = type;
   monsterReward.character = type === 'syllable' ? neededCharacter : '';
   if (type === 'syllable') {
@@ -1460,6 +1475,7 @@ function collectNearbyLetter() {
   if (isMonsterReward) {
     monsterReward.active = false;
     monsterReward.collected = true;
+    monsterReward.dropped = false;
     if (monsterReward.type === 'syllable') {
       collectedLetters.push(item.character);
       if (!archiveState.collectedSyllables.includes(item.character)) archiveState.collectedSyllables.push(item.character);
@@ -1642,7 +1658,7 @@ function createStageLayout(stage, regenerate = false) {
   const key = stage.id;
   const previous = stageLayouts[key];
   const nonce = regenerate ? Number(previous?.nonce || 0) + 1 : Number(previous?.nonce || 0);
-  if (!regenerate && previous?.letters?.length === stage.syllables.length && previous?.monsters?.length === stage.syllables.length + 1) return previous;
+  if (!regenerate && previous?.letters?.length === stage.syllables.length && previous?.monsters?.length === stage.syllables.length + 3) return previous;
   const random = seededRandom(stageSeed(stage, nonce));
   const reserved = [];
   const letters = [];
@@ -1688,8 +1704,10 @@ function createStageLayout(stage, regenerate = false) {
     const monster = takeNearbyPosition(letter);
     monsters.push({ id: `protected-monster-${index}`, x: monster.x, y: monster.y, protectedLetterIndex: index });
   });
-  const extra = takePosition(170);
-  monsters.push({ id: 'additional-monster', x: extra.x, y: extra.y, protectedLetterIndex: null });
+  for (let index = 0; index < 3; index += 1) {
+    const extra = takePosition(170);
+    monsters.push({ id: `additional-monster-${index}`, x: extra.x, y: extra.y, protectedLetterIndex: null });
+  }
   const layout = { nonce, letters, monsters };
   stageLayouts[key] = layout;
   persistStageLayouts();
