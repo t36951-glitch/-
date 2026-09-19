@@ -21,7 +21,8 @@ const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
 const energy = { current: MAX_ENERGY };
-const wrongTouchCooldown = new Map();
+const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
+const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
@@ -36,6 +37,7 @@ const retryButton = document.querySelector('#retry-button');
 let letterNoticeTimer;
 let successAudioContext;
 let successEffect = null;
+let recoveryEffect = null;
 
 function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
@@ -86,32 +88,53 @@ function playSuccessSound() {
 function completeWord() {
   challenge.status = 'complete';
   challenge.doorOpen = true;
-  successEffect = { x: stageDoor.x, y: stageDoor.y, life: 2.4 };
+  successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
   showNotice('사과 완성! 문이 열렸어요.', 3000);
   playSuccessSound();
+}
+
+function knockBackFromLetter(item) {
+  const dx = player.x - item.x;
+  const dy = player.y + player.footOffsetY - item.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const push = 18;
+  const nextX = player.x + (dx / length) * push;
+  const nextY = player.y + (dy / length) * push;
+  if (canMoveTo(nextX, player.y)) player.x = nextX;
+  if (canMoveTo(player.x, nextY)) player.y = nextY;
+}
+
+function handleWrongLetterContact(item) {
+  const now = performance.now();
+  item.wobble = 1;
+  if (wrongContact.touchingItemId === item.id || now < wrongContact.shieldUntil) return;
+  wrongContact.touchingItemId = item.id;
+  wrongContact.shieldUntil = now + 1000;
+  wrongContact.moveLockUntil = now + 500;
+  energy.current = Math.max(0, energy.current - 1);
+  knockBackFromLetter(item);
+  updateEnergyHud();
+  if (energy.current === 0) showNotice('에너지가 부족해요. 집에 가서 쉬어볼까요?', 2600);
+  else showNotice('먼저 다른 음절을 찾아볼까요?', 1800);
 }
 
 function collectNearbyLetter() {
   const footY = player.y + player.footOffsetY;
   const neededCharacter = TARGET_WORD[collectedLetters.length];
   const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
-  if (!item) return;
+  if (!item) {
+    wrongContact.touchingItemId = null;
+    return;
+  }
   if (item.character !== neededCharacter) {
-    item.wobble = 1;
-    const now = performance.now();
-    const lastTouch = wrongTouchCooldown.get(item.id) || -Infinity;
-    if (now - lastTouch < 1200) return;
-    wrongTouchCooldown.set(item.id, now);
-    energy.current = Math.max(0, energy.current - 1);
-    updateEnergyHud();
-    if (energy.current === 0) showNotice('괜찮아요. 천천히 다시 찾아볼까요?', 2500);
-    else showNotice('먼저 다른 음절을 찾아볼까요?', 1800);
+    handleWrongLetterContact(item);
     return;
   }
   item.collected = true;
   collectedLetters.push(item.character);
   pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
+  wrongContact.touchingItemId = null;
   updateCollectionHud();
   if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
   else showLetterNotice(item.character);
@@ -125,6 +148,40 @@ function updatePickupEffects(delta) {
   if (successEffect) {
     successEffect.life -= delta;
     if (successEffect.life <= 0) successEffect = null;
+  }
+  if (recoveryEffect) {
+    recoveryEffect.life -= delta;
+    if (recoveryEffect.life <= 0) recoveryEffect = null;
+  }
+}
+
+function updateRestZone(delta) {
+  const footY = player.y + player.footOffsetY;
+  const inside = circleIntersectsRect(player.x, footY, player.radius, restArea);
+  if (!inside) {
+    restState.inside = false;
+    restState.elapsed = 0;
+    restState.recovered = false;
+    restState.noticeShown = false;
+    return;
+  }
+  if (!restState.inside) {
+    restState.inside = true;
+    restState.elapsed = 0;
+    restState.recovered = false;
+    restState.noticeShown = false;
+  }
+  if (!restState.noticeShown) {
+    showNotice('집에서 잠시 쉬어볼까요?', 1600);
+    restState.noticeShown = true;
+  }
+  restState.elapsed += delta;
+  if (restState.elapsed >= 1 && !restState.recovered) {
+    restState.recovered = true;
+    energy.current = MAX_ENERGY;
+    recoveryEffect = { x: restArea.xCenter, y: restArea.yCenter, life: 2 };
+    updateEnergyHud();
+    showNotice('푹 쉬었어요! 에너지가 모두 회복되었어요.', 2600);
   }
 }
 
@@ -157,6 +214,8 @@ const RIVER_WATER_HALF_WIDTH = 22;
 // This is the horizontal path crossing over the stream; only this rectangle bypasses river collision.
 const bridgePassage = { x: 1808, y: 760, w: 112, h: 80 };
 const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 };
+// The right-hand house is the nearby rest place. This area is outside the doorway; no interior map is added.
+const restArea = { x: 1218, y: 560, w: 84, h: 70, xCenter: 1260, yCenter: 595 };
 const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
@@ -336,6 +395,35 @@ function drawPickupEffects() {
     }
     ctx.restore();
   }
+  if (recoveryEffect) {
+    const progress = 1 - recoveryEffect.life / 2;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, recoveryEffect.life / 2);
+    ctx.fillStyle = '#fff2a6';
+    ctx.font = 'bold 25px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('회복!', recoveryEffect.x, recoveryEffect.y - 28 - progress * 24);
+    for (let i = 0; i < 6; i += 1) {
+      const angle = i * Math.PI / 3 + progress;
+      ctx.beginPath();
+      ctx.arc(recoveryEffect.x + Math.cos(angle) * (22 + progress * 28), recoveryEffect.y - 2 + Math.sin(angle) * (14 + progress * 18), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawRestArea() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(255, 255, 255, .26)';
+  ctx.beginPath(); ctx.ellipse(restArea.xCenter, restArea.yCenter + 14, 54, 22, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#f3c7d0';
+  ctx.font = 'bold 22px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('♥', restArea.xCenter, restArea.yCenter + 7);
+  ctx.fillStyle = '#6a8d75';
+  ctx.font = 'bold 14px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.fillText('휴식', restArea.xCenter, restArea.yCenter + 35);
+  ctx.restore();
 }
 
 function drawStageDoor() {
@@ -374,8 +462,15 @@ function resetChallenge() {
   letterItems.forEach((item) => { item.collected = false; item.wobble = 0; });
   collectedLetters.length = 0;
   pickupEffects.length = 0;
-  wrongTouchCooldown.clear();
+  wrongContact.touchingItemId = null;
+  wrongContact.shieldUntil = 0;
+  wrongContact.moveLockUntil = 0;
   energy.current = MAX_ENERGY;
+  recoveryEffect = null;
+  restState.inside = false;
+  restState.elapsed = 0;
+  restState.recovered = false;
+  restState.noticeShown = false;
   successEffect = null;
   challenge.status = 'collecting';
   challenge.doorOpen = false;
@@ -427,7 +522,8 @@ function drawCollisionDebug() {
   ctx.restore();
 }
 function update(delta) {
-  const dir = direction();
+  const now = performance.now();
+  const dir = now < wrongContact.moveLockUntil ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
     const nextY = player.y + dir.y * player.speed * delta;
@@ -439,6 +535,7 @@ function update(delta) {
   } else player.bob *= 0.85;
   collectNearbyLetter();
   if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
+  updateRestZone(delta);
   updatePickupEffects(delta);
   checkDoorPassage();
   updateDoorNotice();
@@ -468,7 +565,7 @@ function drawWorld() {
   // bridge stream
   ctx.strokeStyle = '#83cfe0'; ctx.lineWidth = 44; ctx.beginPath(); ctx.moveTo(1830, -50); ctx.bezierCurveTo(1810, 350, 1900, 610, 1810, 920); ctx.bezierCurveTo(1730, 1160, 1840, 1430, 1780, 1700); ctx.stroke();
   ctx.strokeStyle = '#c6ebec'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(1815, -50); ctx.bezierCurveTo(1795, 350, 1885, 610, 1795, 920); ctx.bezierCurveTo(1715, 1160, 1825, 1430, 1765, 1700); ctx.stroke();
-  drawHouse(1260, 480); drawHouse(430, 760); drawSign(1090, 720); drawStageDoor();
+  drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor();
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
@@ -489,7 +586,30 @@ function drawFlower(x, y, color) { ctx.strokeStyle = '#4d9a5c'; ctx.lineWidth = 
 function drawFence(x, y) { ctx.strokeStyle = '#b57c4a'; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(x, y - 23); ctx.lineTo(x, y + 20); ctx.moveTo(x + 36, y - 23); ctx.lineTo(x + 36, y + 20); ctx.moveTo(x - 4, y - 8); ctx.lineTo(x + 40, y - 8); ctx.moveTo(x - 4, y + 9); ctx.lineTo(x + 40, y + 9); ctx.stroke(); }
 function drawHouse(x, y) { ctx.fillStyle = 'rgba(55,100,62,.18)'; ctx.beginPath(); ctx.ellipse(x + 8, y + 75, 100, 18, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#fff8d9'; roundedRect(x - 80, y, 160, 80, 14); ctx.fill(); ctx.fillStyle = '#e9876e'; ctx.beginPath(); ctx.moveTo(x - 100, y + 5); ctx.lineTo(x, y - 75); ctx.lineTo(x + 100, y + 5); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#8cc7d5'; roundedRect(x - 55, y + 22, 32, 28, 6); ctx.fill(); roundedRect(x + 23, y + 22, 32, 28, 6); ctx.fill(); ctx.fillStyle = '#9a6b55'; roundedRect(x - 14, y + 30, 28, 50, 6); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('작은 집', x, y + 108); }
 function drawSign(x, y) { ctx.fillStyle = '#8f603f'; ctx.fillRect(x - 5, y, 10, 70); ctx.fillStyle = '#f6c86e'; roundedRect(x - 70, y - 40, 140, 50, 12); ctx.fill(); ctx.fillStyle = '#694d3e'; ctx.font = 'bold 19px Pretendard, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('반짝숲 마을', x, y - 8); }
-function drawPlayer() { const bounce = Math.sin(player.bob) * (direction().x || direction().y ? 3 : 0); const x = player.x; const y = player.y + bounce; ctx.fillStyle = 'rgba(50,80,60,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 29, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#5d83d8'; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill(); ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#6d4b43'; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke(); ctx.fillStyle = '#f3c85e'; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill(); }
+function drawPlayer() {
+  const bounce = Math.sin(player.bob) * (direction().x || direction().y ? 3 : 0);
+  const x = player.x; const y = player.y + bounce;
+  ctx.fillStyle = 'rgba(50,80,60,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 29, 11, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5d83d8'; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill();
+  ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#6d4b43'; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke();
+  ctx.fillStyle = '#f3c85e'; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
+  if (performance.now() < wrongContact.shieldUntil) {
+    const remaining = (wrongContact.shieldUntil - performance.now()) / 1000;
+    ctx.save();
+    ctx.globalAlpha = 0.55 + Math.sin(performance.now() / 90) * 0.16;
+    ctx.strokeStyle = '#ffe78d'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(x, y + 10, 40 + Math.sin(performance.now() / 130) * 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#fff4b0';
+    for (let i = 0; i < 4; i += 1) {
+      const angle = i * Math.PI / 2 + remaining * 2;
+      ctx.beginPath(); ctx.arc(x + Math.cos(angle) * 38, y + 10 + Math.sin(angle) * 38, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
 
 function frame(now) { const delta = Math.min((now - lastTime) / 1000, 0.05); lastTime = now; update(delta); drawWorld(); requestAnimationFrame(frame); }
 updateCollectionHud();
