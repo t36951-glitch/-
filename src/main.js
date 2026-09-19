@@ -61,7 +61,12 @@ const learningMonster = {
   defeatStartedAt: 0,
   quizResolved: false
 };
-const combat = { current: 3, max: 3, restActive: false, restElapsed: 0 };
+const combat = { current: 3, max: 3, inCombat: false, lastDamageAt: 0, recoveryElapsed: 0 };
+const BASIC_ATTACK_INTERVAL = 1000;
+const MONSTER_ATTACK_INTERVAL = BASIC_ATTACK_INTERVAL / 1.2;
+const MONSTER_WARNING_DURATION = 1200;
+const MONSTER_COMBAT_IDLE_DURATION = 5000;
+const COMBAT_HP_RECOVERY_INTERVAL = 15000;
 const attackState = { cooldownUntil: 0, projectiles: [], effects: [], nextId: 1 };
 const collectedLetters = [];
 const pickupEffects = [];
@@ -69,7 +74,7 @@ const MAX_ENERGY = 5;
 const energy = { current: MAX_ENERGY };
 const mp = { current: MP_SETTINGS[profile.character].max, recoveryElapsed: 0, saveElapsed: 0 };
 const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
-const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
+const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false, promptOpen: false, promptDismissed: false };
 const automaticRest = { active: false, elapsed: 0, lastSecond: 5, reason: 'energy' };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
@@ -84,6 +89,9 @@ const mpFillEl = document.querySelector('#mp-fill');
 const monsterEnergyEl = document.querySelector('#monster-energy');
 const restCountdown = document.querySelector('#rest-countdown');
 const restCountdownNumber = document.querySelector('#rest-countdown-number');
+const restPrompt = document.querySelector('#rest-prompt');
+const restYesButton = document.querySelector('#rest-yes');
+const restNoButton = document.querySelector('#rest-no');
 const hintOverlay = document.querySelector('#hint-overlay');
 const hintCloseButton = document.querySelector('#hint-close');
 const hintCurrentEl = document.querySelector('#hint-current');
@@ -123,7 +131,7 @@ const attackButton = document.querySelector('#attack-button');
 const skillButton = document.querySelector('#skill-button-0');
 const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
-const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, arrowUntil: 0, hintUntil: 0 };
+const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, combatShieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, arrowUntil: 0, hintUntil: 0 };
 const skillChargesEl = document.querySelector('#skill-charges-0');
 
 function currentMPSettings() {
@@ -169,6 +177,7 @@ function resetSkillState() {
   skillState.activeUntil = 0;
   skillState.shieldUntil = 0;
   skillState.shieldHitsRemaining = 0;
+  skillState.combatShieldHitsRemaining = 0;
   skillState.shieldVisualOn = false;
   skillState.focusItemId = null;
   skillState.focusUntil = 0;
@@ -194,7 +203,7 @@ function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
 
 function updateSkillHud(now = performance.now()) {
   clearArcherSkillFocusIfOutOfRange(now);
-  const canAttempt = gameStarted && energy.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
+  const canAttempt = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && now >= skillState.cooldownUntil;
   const ready = canAttempt && mp.current > 0;
   const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
   skillNameEl.textContent = currentSkillName();
@@ -208,6 +217,7 @@ function updateSkillHud(now = performance.now()) {
   if (skillState.shieldVisualOn && now >= skillState.shieldUntil) {
     skillState.shieldVisualOn = false;
     skillState.shieldHitsRemaining = 0;
+    skillState.combatShieldHitsRemaining = 0;
     skillState.shieldUntil = 0;
     skillState.activeUntil = Math.min(skillState.activeUntil, now);
     showNotice('글자 방패가 사라졌어요.', 1100);
@@ -219,7 +229,7 @@ function updateSkillHud(now = performance.now()) {
   }
   skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}${canAttempt && !ready ? ' 마나가 부족해요' : ''}`);
   if (attackButton) {
-    const attackReady = gameStarted && energy.current > 0 && !automaticRest.active && !monsterQuizOpen && now >= attackState.cooldownUntil;
+    const attackReady = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && !monsterQuizOpen && now >= attackState.cooldownUntil;
     attackButton.disabled = !attackReady;
     attackButton.setAttribute('aria-label', '기본 공격');
   }
@@ -425,7 +435,7 @@ function openMonsterQuiz() {
 }
 
 function checkMonsterProximity() {
-  if (learningMonster.resolved || learningMonster.quizResolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  if (learningMonster.resolved || learningMonster.quizResolved || automaticRest.active || restState.promptOpen || energy.current === 0 || monsterQuizOpen) return;
   const footY = player.y + player.footOffsetY;
   if (Math.hypot(player.x - learningMonster.x, footY - learningMonster.y) <= player.radius + 75) openMonsterQuiz();
 }
@@ -519,6 +529,7 @@ function useLearningSkill() {
   if (profile.character === 'swordsman') {
     skillState.shieldUntil = now + 5000;
     skillState.shieldHitsRemaining = 2;
+    skillState.combatShieldHitsRemaining = 1;
     skillState.shieldVisualOn = true;
     showNotice('글자 방패가 켜졌어요!', 1200);
   } else {
@@ -614,6 +625,8 @@ function knockBackFromLetter(item) {
 
 function startAutomaticRest(reason = 'energy') {
   if (automaticRest.active) return;
+  closeRestPrompt();
+  restState.promptDismissed = true;
   resetSkillState();
   automaticRest.reason = reason;
   automaticRest.active = true;
@@ -638,7 +651,9 @@ function startAutomaticRest(reason = 'energy') {
   showNotice(
     reason === 'combat'
       ? '전투 체력이 부족해요. 집으로 돌아가 쉴게요.'
-      : '에너지가 부족해요. 집으로 돌아가 쉴게요.',
+      : reason === 'manual'
+        ? '휴식을 시작할게요.'
+        : '에너지가 부족해요. 집으로 돌아가 쉴게요.',
     3200
   );
 }
@@ -657,6 +672,9 @@ function updateAutomaticRest(delta) {
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
   combat.current = combat.max;
+  combat.inCombat = false;
+  combat.lastDamageAt = 0;
+  combat.recoveryElapsed = 0;
   mp.current = currentMPSettings().max;
   mp.recoveryElapsed = 0;
   mp.saveElapsed = 0;
@@ -692,6 +710,8 @@ function damageTrainingMonster(amount = 1) {
   if (learningMonster.hp === 0) {
     learningMonster.resolved = true;
     learningMonster.state = 'friend';
+    combat.inCombat = false;
+    combat.recoveryElapsed = 0;
     learningMonster.defeatStartedAt = performance.now();
     learningMonster.warningUntil = 0;
     learningMonster.attackActiveUntil = 0;
@@ -719,8 +739,8 @@ function queueProjectile(type) {
 
 function useBasicAttack() {
   const now = performance.now();
-  if (!gameStarted || automaticRest.active || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
-  attackState.cooldownUntil = now + 420;
+  if (!gameStarted || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
+  attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
     const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
     if (!learningMonster.resolved && distance <= 125) damageTrainingMonster(1);
@@ -754,7 +774,21 @@ function consumeLearningShield() {
   const now = performance.now();
   if (now >= skillState.shieldUntil || skillState.shieldHitsRemaining <= 0) return false;
   skillState.shieldHitsRemaining -= 1;
-  if (skillState.shieldHitsRemaining === 0) {
+  if (skillState.shieldHitsRemaining === 0 && skillState.combatShieldHitsRemaining === 0) {
+    skillState.shieldUntil = 0;
+    skillState.shieldVisualOn = false;
+    skillState.activeUntil = now;
+  }
+  updateSkillHud(now);
+  showNotice('방어 성공!', 1200);
+  return true;
+}
+
+function consumeCombatShield() {
+  const now = performance.now();
+  if (now >= skillState.shieldUntil || skillState.combatShieldHitsRemaining <= 0) return false;
+  skillState.combatShieldHitsRemaining = 0;
+  if (skillState.shieldHitsRemaining <= 0) {
     skillState.shieldUntil = 0;
     skillState.shieldVisualOn = false;
     skillState.activeUntil = now;
@@ -780,7 +814,7 @@ function handleWrongLetterContact(item) {
 }
 
 function collectNearbyLetter() {
-  if (automaticRest.active || energy.current === 0) return;
+  if (automaticRest.active || restState.promptOpen || energy.current === 0) return;
   const footY = player.y + player.footOffsetY;
   const neededCharacter = TARGET_WORD[collectedLetters.length];
   const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
@@ -837,7 +871,33 @@ function updateMPRecovery(delta) {
   }
 }
 
-function updateRestZone(delta) {
+function closeRestPrompt() {
+  restState.promptOpen = false;
+  restPrompt.hidden = true;
+}
+
+function openRestPrompt() {
+  if (automaticRest.active || restState.promptOpen || restState.promptDismissed) return;
+  restState.promptOpen = true;
+  restPrompt.hidden = false;
+}
+
+function beginRestFromPrompt() {
+  if (!restState.promptOpen) return;
+  closeRestPrompt();
+  restState.promptDismissed = true;
+  startAutomaticRest('manual');
+}
+
+function declineRestPrompt() {
+  closeRestPrompt();
+  restState.promptDismissed = true;
+}
+
+restYesButton.addEventListener('click', beginRestFromPrompt);
+restNoButton.addEventListener('click', declineRestPrompt);
+
+function updateRestZone() {
   const footY = player.y + player.footOffsetY;
   const inside = circleIntersectsRect(player.x, footY, player.radius, restArea);
   if (!inside) {
@@ -845,6 +905,8 @@ function updateRestZone(delta) {
     restState.elapsed = 0;
     restState.recovered = false;
     restState.noticeShown = false;
+    restState.promptDismissed = false;
+    closeRestPrompt();
     return;
   }
   if (!restState.inside) {
@@ -852,19 +914,9 @@ function updateRestZone(delta) {
     restState.elapsed = 0;
     restState.recovered = false;
     restState.noticeShown = false;
+    restState.promptDismissed = false;
   }
-  if (!restState.noticeShown) {
-    showNotice('집에서 잠시 쉬어볼까요?', 1600);
-    restState.noticeShown = true;
-  }
-  restState.elapsed += delta;
-  if (restState.elapsed >= 1 && !restState.recovered) {
-    restState.recovered = true;
-    energy.current = MAX_ENERGY;
-    recoveryEffect = { x: restArea.xCenter, y: restArea.yCenter, life: 2 };
-    updateEnergyHud();
-    showNotice('푹 쉬었어요! 에너지가 모두 회복되었어요.', 2600);
-  }
+  if (!automaticRest.active && !restState.promptDismissed) openRestPrompt();
 }
 
 const trees = [
@@ -1028,21 +1080,45 @@ function applyTrainingMonsterAttack() {
   if (learningMonster.resolved || automaticRest.active) return;
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > 155) return;
-  if (consumeLearningShield()) return;
+  combat.lastDamageAt = performance.now();
+  combat.recoveryElapsed = 0;
+  if (consumeCombatShield()) return;
   combat.current = Math.max(0, combat.current - 1);
   updateCombatHud();
   if (combat.current === 0) startAutomaticRest('combat');
   else showNotice('몬스터의 공격을 피했어요? 전투 체력이 줄었어요.', 1600);
 }
 
+function updateCombatRecovery(delta) {
+  if (combat.current >= combat.max) {
+    combat.recoveryElapsed = 0;
+    return;
+  }
+  const now = performance.now();
+  if (!combat.inCombat || now - combat.lastDamageAt >= MONSTER_COMBAT_IDLE_DURATION) {
+    combat.inCombat = false;
+    combat.recoveryElapsed += delta;
+    if (combat.recoveryElapsed >= COMBAT_HP_RECOVERY_INTERVAL) {
+      combat.current = Math.min(combat.max, combat.current + 1);
+      combat.recoveryElapsed = 0;
+      updateCombatHud();
+      showNotice('전투 체력이 1칸 회복되었어요.', 1400);
+    }
+  } else {
+    combat.recoveryElapsed = 0;
+  }
+}
+
 function updateTrainingMonster() {
-  if (learningMonster.resolved || automaticRest.active || monsterQuizOpen) return;
+  if (learningMonster.resolved || automaticRest.active || restState.promptOpen || monsterQuizOpen) return;
   const now = performance.now();
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (learningMonster.state === 'idle' && distance <= 260 && now >= learningMonster.nextAttackAt) {
     learningMonster.state = 'warning';
-    learningMonster.warningUntil = now + 1200;
+    learningMonster.warningUntil = now + MONSTER_WARNING_DURATION;
     learningMonster.nextAttackAt = learningMonster.warningUntil;
+    combat.inCombat = true;
+    combat.lastDamageAt = now;
     playCombatSound('warning');
     showNotice('느낌표! 훈련 몬스터가 공격을 준비해요.', 1500);
   }
@@ -1054,7 +1130,7 @@ function updateTrainingMonster() {
   }
   if (learningMonster.state === 'attack' && now >= learningMonster.attackActiveUntil) {
     learningMonster.state = 'idle';
-    learningMonster.nextAttackAt = now + 1700;
+    learningMonster.nextAttackAt = now + MONSTER_ATTACK_INTERVAL;
   }
   if (learningMonster.state === 'idle' && learningMonster.nextAttackAt && now < learningMonster.nextAttackAt) return;
 }
@@ -1342,6 +1418,9 @@ function resetChallenge() {
   automaticRest.active = false;
   automaticRest.elapsed = 0;
   automaticRest.lastSecond = 5;
+  automaticRest.reason = 'energy';
+  closeRestPrompt();
+  restState.promptDismissed = false;
   restCountdown.hidden = true;
   restCountdownNumber.textContent = '5';
   treasureChest.opened = false;
@@ -1370,6 +1449,9 @@ function resetChallenge() {
   resetSkillState();
   energy.current = MAX_ENERGY;
   combat.current = combat.max;
+  combat.inCombat = false;
+  combat.lastDamageAt = 0;
+  combat.recoveryElapsed = 0;
   mp.current = currentMPSettings().max;
   mp.recoveryElapsed = 0;
   mp.saveElapsed = 0;
@@ -1435,6 +1517,7 @@ function update(delta) {
   if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
   updateAutomaticRest(delta);
   updateMPRecovery(delta);
+  updateCombatRecovery(delta);
   const now = performance.now();
   updateSkillHud(now);
   updateTrainingMonster();

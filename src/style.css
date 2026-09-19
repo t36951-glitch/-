@@ -90,7 +90,14 @@ button { font: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color:
 #retry-button:active { transform:translateY(3px); box-shadow:0 2px 0 #579162; }
 .letter-notice { position:absolute; z-index:6; top:155px; left:50%; max-width:min(360px, calc(100% - 32px)); padding:10px 18px; transform:translate(-50%, -8px); border:2px solid rgba(255,255,255,.9); border-radius:16px; color:#66503f; background:rgba(255,249,205,.95); box-shadow:0 7px 18px rgba(75,112,89,.15); font-family:Jua, sans-serif; font-size:18px; text-align:center; opacity:0; pointer-events:none; transition:opacity .18s ease, transform .18s ease; }
 .letter-notice.is-visible { opacity:1; transform:translate(-50%, 0); }
-.rest-countdown { position:absolute; z-index:9; top:50%; left:50%; display:grid; place-items:center; width:170px; height:170px; transform:translate(-50%, -50%); border:6px solid rgba(255,255,255,.92); border-radius:50%; color:#5f8d68; background:rgba(255,249,202,.94); box-shadow:0 0 0 12px rgba(255,235,137,.24), 0 12px 30px rgba(75,112,89,.2); text-align:center; }
+.rest-prompt { position:absolute; inset:0; z-index:14; display:grid; place-items:center; background:rgba(54,89,63,.16); backdrop-filter:blur(2px); }
+.rest-prompt[hidden] { display:none; }
+.rest-prompt-card { width:min(390px,calc(100% - 32px)); padding:28px 22px 24px; border:4px solid #fff; border-radius:26px; background:#fffced; box-shadow:0 18px 40px rgba(43,80,54,.24); text-align:center; }
+.rest-prompt-card h2 { margin:0 0 22px; color:#5b8065; font-family:Jua,sans-serif; font-size:28px; font-weight:400; }
+.rest-prompt-actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.rest-prompt-actions button { padding:13px 10px; border:3px solid #fff; border-radius:15px; color:#fff; background:#75af7d; box-shadow:0 4px 0 #579162; font-size:20px; font-weight:900; }
+.rest-prompt-actions button:last-child { color:#66806d; border-color:#d7e8ce; background:#f5fbef; box-shadow:0 4px 0 #c6dfc3; }
+.rest-countdown { position:absolute; z-index:15; top:50%; left:50%; display:grid; place-items:center; width:170px; height:170px; transform:translate(-50%, -50%); border:6px solid rgba(255,255,255,.92); border-radius:50%; color:#5f8d68; background:rgba(255,249,202,.94); box-shadow:0 0 0 12px rgba(255,235,137,.24), 0 12px 30px rgba(75,112,89,.2); text-align:center; }
 .rest-countdown[hidden] { display:none; }
 .rest-countdown strong { display:block; color:#eca65a; font-family:Jua, sans-serif; font-size:78px; line-height:.85; }
 .rest-countdown span { margin-top:8px; font-size:14px; font-weight:900; }
