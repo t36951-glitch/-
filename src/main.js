@@ -688,7 +688,12 @@ function updateAutomaticRest(delta) {
   restState.noticeShown = true;
   recoveryEffect = { x: restArea.xCenter, y: restArea.yCenter, life: 2 };
   updateEnergyHud();
-  showNotice('푹 쉬었어요! 전투 체력과 에너지가 모두 회복되었어요.', 2600);
+  showNotice(
+    automaticRest.reason === 'manual'
+      ? '푹 쉬었어요! 체력과 마나가 모두 회복되었어요.'
+      : '푹 쉬었어요! 전투 체력과 에너지가 모두 회복되었어요.',
+    2600
+  );
 }
 
 function getFacingVector() {
