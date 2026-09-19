@@ -73,6 +73,8 @@
           <div class="teacher-header"><div><p class="teacher-kicker">교사용 설정</p><h2>스테이지를 준비해요</h2></div><button id="teacher-close" class="hint-close" type="button">닫기</button></div>
           <div id="teacher-list-view" class="teacher-list-view">
             <div class="teacher-list-toolbar"><h3>저장된 스테이지 1~14</h3><div class="teacher-toolbar-actions"><button id="teacher-apply-defaults" class="menu-action" type="button">14개 기본 콘텐츠 적용</button><button id="teacher-new-list" class="menu-action" type="button">새 스테이지</button></div></div>
+            <div class="teacher-bulk-mode"><strong>전체 학습 방식</strong><label><input type="radio" name="teacher-bulk-learning-mode" value="syllable" checked> 음절 모드</label><label><input type="radio" name="teacher-bulk-learning-mode" value="jamo"> 자음·모음 모드</label><button id="teacher-apply-learning-mode" class="menu-action" type="button">전체 스테이지에 적용</button></div>
+            <p id="teacher-list-feedback" class="teacher-feedback" role="status"></p>
             <div id="teacher-stage-list" class="teacher-stage-list"></div>
           </div>
           <div id="teacher-editor-view" class="teacher-editor-view" hidden>

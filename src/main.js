@@ -31,6 +31,7 @@ const DEFAULT_STAGE = {
   id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
   hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
 };
+const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '', displayWord: '', syllables: [], learningMode: 'boss', consonant: '', hint: '', locked: true, active: false, protected: false, bossReserved: true };
 const DEFAULT_CONSONANT_STAGES = [
   { stageNumber: 1, consonant: 'ㄱ', word: '가방', syllables: ['가', '방'], hint: '물건을 넣고 다니는 것이에요.' },
   { stageNumber: 2, consonant: 'ㄴ', word: '나비', syllables: ['나', '비'], hint: '날아다니는 예쁜 곤충이에요.' },
@@ -69,7 +70,8 @@ function normalizeStage(raw = {}) {
     word: safeWord,
     displayWord: safeWord,
     syllables: safeSyllables,
-    learningMode: raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
+    learningMode: raw.bossReserved ? 'boss' : raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
+    bossReserved: Boolean(raw.bossReserved),
     consonant: String(raw.consonant || DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === Number(raw.stageNumber))?.consonant || (isDefault ? DEFAULT_STAGE.consonant : '')),
     hint: hint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
@@ -86,19 +88,15 @@ function loadTeacherStages() {
       ...stage, id: `stage-${stage.stageNumber}`, active: index === 0, locked: false, protected: stage.stageNumber === 1
     }));
     if (!stages.some((stage) => stage.id === DEFAULT_STAGE.id)) stages.unshift(normalizeStage(DEFAULT_STAGE));
-    DEFAULT_CONSONANT_STAGES.forEach((defaultStage) => {
-      const existing = stages.find((stage) => stage.stageNumber === defaultStage.stageNumber);
-      if (existing && !existing.displayWord) {
-        Object.assign(existing, normalizeStage({ ...defaultStage, id: existing.id, active: false, locked: false, protected: existing.protected }));
-      }
-    });
     for (let number = 1; number <= 14; number += 1) {
       if (!stages.some((stage) => stage.stageNumber === number)) {
-        const defaultStage = DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === number);
-        stages.push(normalizeStage(defaultStage
-          ? { ...defaultStage, id: `stage-${number}`, locked: false, active: false, protected: number === 1 }
-          : { id: `stage-${number}`, stageNumber: number, word: '', displayWord: '', syllables: [], hint: '', locked: true, active: false }));
+        stages.push(normalizeStage({ id: `stage-${number}`, stageNumber: number, word: '', displayWord: '', syllables: [], hint: '', locked: number !== 1, active: number === 1, protected: number === 1 }));
       }
+    }
+    let addedBossStage = false;
+    if (!stages.some((stage) => stage.stageNumber === 15)) {
+      stages.push(normalizeStage(BOSS_STAGE));
+      addedBossStage = true;
     }
     let activeFound = false;
     stages.forEach((stage) => {
@@ -110,7 +108,7 @@ function loadTeacherStages() {
       if (fallback) { fallback.active = true; fallback.locked = false; }
     }
     const ordered = stages.sort((a, b) => a.stageNumber - b.stageNumber);
-    if (!hasSavedStages) {
+    if (!hasSavedStages || addedBossStage) {
       try { localStorage.setItem(STAGE_STORAGE_KEY, JSON.stringify(ordered)); } catch (error) { /* localStorage may be unavailable */ }
     }
     return ordered;
@@ -286,6 +284,8 @@ const teacherListView = document.querySelector('#teacher-list-view');
 const teacherEditorView = document.querySelector('#teacher-editor-view');
 const teacherNewListButton = document.querySelector('#teacher-new-list');
 const teacherApplyDefaultsButton = document.querySelector('#teacher-apply-defaults');
+const teacherApplyLearningModeButton = document.querySelector('#teacher-apply-learning-mode');
+const teacherListFeedback = document.querySelector('#teacher-list-feedback');
 const teacherStageNumber = document.querySelector('#teacher-stage-number');
 const teacherWordInput = document.querySelector('#teacher-word');
 const teacherLearningMode = document.querySelector('#teacher-learning-mode');
@@ -736,6 +736,7 @@ function showTeacherEditor(stage) {
 }
 
 function stageStatusLabel(stage) {
+  if (stage.stageNumber === 15) return '보스 준비 중';
   if (!stage.word) return '내용 없음';
   if (stage.active) return '현재 플레이 중';
   if (stage.locked) return '잠김';
@@ -743,8 +744,24 @@ function stageStatusLabel(stage) {
 }
 
 function renderTeacherStageList() {
-  const ordered = Array.from({ length: 14 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
-  teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => `<div class="teacher-stage-row"><strong>${stage.stageNumber}</strong><span>${escapeHtml(stage.displayWord || stage.word || '—')}</span><span class="teacher-hint-cell">${escapeHtml(stage.hint || '—')}</span><span>${stage.learningMode === 'jamo' ? '자음·모음 모드' : '음절 모드'}</span><span class="teacher-status-badge ${stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions"><button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}</span></div>`).join('')}</div>`;
+  const ordered = Array.from({ length: 15 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
+  teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => {
+    const isBoss = stage.stageNumber === 15;
+    const word = isBoss ? '보스 스테이지' : stage.displayWord || stage.word || '—';
+    const mode = isBoss ? '별도 설정' : stage.learningMode === 'jamo' ? '자음·모음 모드' : '음절 모드';
+    return `<div class="teacher-stage-row ${isBoss ? 'is-boss-reserved' : ''}"><strong>${stage.stageNumber}</strong><span>${escapeHtml(word)}</span><span class="teacher-hint-cell">${escapeHtml(isBoss ? '보스 콘텐츠 준비 예정' : stage.hint || '—')}</span><span>${mode}</span><span class="teacher-status-badge ${isBoss ? 'is-boss' : stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions">${isBoss ? '<small>예약됨</small>' : `<button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}`}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function applyBulkLearningMode() {
+  const selectedMode = document.querySelector('input[name="teacher-bulk-learning-mode"]:checked')?.value || 'syllable';
+  if (!window.confirm('선택한 학습 방식을 1~14단계에 적용할까요?\n기존 학습 방식이 변경됩니다.\n목표 단어와 힌트 문장은 변경되지 않습니다.')) return;
+  teacherStages.forEach((stage) => {
+    if (stage.stageNumber >= 1 && stage.stageNumber <= 14) stage.learningMode = selectedMode;
+  });
+  persistTeacherStages();
+  renderTeacherStageList();
+  teacherListFeedback.textContent = '1~14단계의 학습 방식이 변경되었어요.';
 }
 
 function applyDefaultConsonantStages() {
@@ -768,7 +785,7 @@ function applyDefaultConsonantStages() {
   }
   persistTeacherStages();
   renderTeacherStageList();
-  teacherFeedback.textContent = '비어 있던 스테이지에 기본 자음 학습 콘텐츠를 적용했어요.';
+  teacherListFeedback.textContent = '비어 있던 스테이지에 기본 자음 학습 콘텐츠를 적용했어요.';
 }
 
 function openTeacherSettings() {
@@ -776,6 +793,7 @@ function openTeacherSettings() {
   teacherPanel.hidden = false;
   showTeacherList();
   teacherFeedback.textContent = '';
+  teacherListFeedback.textContent = '';
 }
 
 function closeTeacherSettings() {
@@ -852,6 +870,10 @@ function applyStageUi() {
 
 function startTeacherStage() {
   const stage = teacherStages.find((item) => item.id === editingTeacherStageId) || activeStage;
+  if (stage.bossReserved) {
+    teacherFeedback.textContent = '15단계는 보스 스테이지로 준비 중이에요.';
+    return;
+  }
   if (stage.locked || !stage.active) {
     teacherFeedback.textContent = '잠긴 스테이지는 먼저 해제해 주세요.';
     return;
@@ -869,15 +891,24 @@ function startTeacherStage() {
 teacherSettingsButton.addEventListener('click', openTeacherSettings);
 teacherCloseButton.addEventListener('click', closeTeacherSettings);
 teacherApplyDefaultsButton.addEventListener('click', applyDefaultConsonantStages);
+teacherApplyLearningModeButton.addEventListener('click', applyBulkLearningMode);
 teacherNewListButton.addEventListener('click', () => {
   const usedNumbers = new Set(teacherStages.map((stage) => stage.stageNumber));
-  const stageNumber = Array.from({ length: 14 }, (_, index) => index + 1).find((number) => !usedNumbers.has(number));
-  if (!stageNumber) return;
-  showTeacherEditor(normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: false, hint: '' }));
+  const stageNumber = Array.from({ length: 14 }, (_, index) => index + 1).find((number) => {
+    const stage = teacherStages.find((candidate) => candidate.stageNumber === number);
+    return !stage || !stage.displayWord;
+  });
+  if (!stageNumber) {
+    teacherListFeedback.textContent = '1~14단계가 모두 준비되어 있어요.\n15단계는 보스 스테이지로 준비할 예정이에요.';
+    return;
+  }
+  const emptyStage = teacherStages.find((stage) => stage.stageNumber === stageNumber);
+  showTeacherEditor(emptyStage || normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: false, hint: '' }));
   teacherWordInput.value = '';
   teacherHintInput.value = '';
   teacherStatusInput.value = 'playable';
   teacherFeedback.textContent = '새 스테이지 내용을 입력해 주세요.';
+  teacherListFeedback.textContent = '';
   updateTeacherPreview();
 });
 teacherNewButton.addEventListener('click', () => teacherNewListButton.click());
