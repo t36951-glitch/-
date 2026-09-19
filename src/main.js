@@ -64,6 +64,12 @@ const heroNameInput = document.querySelector('#hero-name-input');
 const characterChoiceButtons = document.querySelectorAll('.character-choice');
 const heroNameEl = document.querySelector('#hero-name');
 const heroAvatarEl = document.querySelector('#hero-avatar');
+const menuButton = document.querySelector('#menu-button');
+const menuPanel = document.querySelector('#menu-panel');
+const changeCharacterButton = document.querySelector('#change-character-button');
+const restartAdventureButton = document.querySelector('#restart-adventure-button');
+const resetProfileButton = document.querySelector('#reset-profile-button');
+const closeMenuButton = document.querySelector('#close-menu-button');
 let selectedCharacter = profile.character;
 let letterNoticeTimer;
 let hintHighlightTimer;
@@ -106,6 +112,58 @@ function startAdventure() {
   player.x = 1200; player.y = 805;
 }
 
+function closeMenu() {
+  menuPanel.hidden = true;
+  menuButton.setAttribute('aria-expanded', 'false');
+}
+
+function openMenu() {
+  if (!gameStarted || automaticRest.active) return;
+  menuPanel.hidden = false;
+  menuButton.setAttribute('aria-expanded', 'true');
+}
+
+function beginCharacterChange() {
+  closeMenu();
+  gameStarted = false;
+  successOverlay.hidden = true;
+  hintOverlay.hidden = true;
+  startScreen.hidden = false;
+  showSetupStep();
+}
+
+function restartAdventure() {
+  closeMenu();
+  resetChallenge();
+}
+
+function resetProfile() {
+  if (!window.confirm('프로필을 초기화할까요? 이름과 캐릭터 선택이 지워집니다.')) return;
+  try { localStorage.removeItem('letter-kingdom-profile'); } catch (error) { /* localStorage may be unavailable */ }
+  profile.name = '다온';
+  profile.character = 'swordsman';
+  selectedCharacter = 'swordsman';
+  gameStarted = false;
+  applyProfileToHud();
+  resetChallenge();
+  closeMenu();
+  startScreen.hidden = false;
+  welcomeStep.hidden = true;
+  setupStep.hidden = false;
+  heroNameInput.value = '';
+  characterChoiceButtons.forEach((button) => {
+    const selected = button.dataset.character === selectedCharacter;
+    button.classList.toggle('is-selected', selected);
+    button.setAttribute('aria-checked', String(selected));
+  });
+  heroNameInput.focus();
+}
+
+menuButton.addEventListener('click', () => (menuPanel.hidden ? openMenu() : closeMenu()));
+changeCharacterButton.addEventListener('click', beginCharacterChange);
+restartAdventureButton.addEventListener('click', restartAdventure);
+resetProfileButton.addEventListener('click', resetProfile);
+closeMenuButton.addEventListener('click', closeMenu);
 welcomeNextButton.addEventListener('click', showSetupStep);
 characterChoiceButtons.forEach((button) => button.addEventListener('click', () => {
   selectedCharacter = button.dataset.character;

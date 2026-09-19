@@ -41,8 +41,17 @@
         </div>
       </section>
       <section class="hud hud-top-right" aria-label="게임 메뉴">
-        <button class="round-ui" aria-label="메뉴">☰</button>
+        <button id="menu-button" class="round-ui" aria-label="메뉴" aria-expanded="false">☰</button>
         <button class="round-ui" aria-label="설정">⚙</button>
+      </section>
+      <section id="menu-panel" class="menu-panel" aria-label="모험 메뉴" hidden>
+        <div class="menu-card">
+          <h2>모험 메뉴</h2>
+          <button id="change-character-button" class="menu-action" type="button">캐릭터 변경</button>
+          <button id="restart-adventure-button" class="menu-action" type="button">현재 모험 다시 시작</button>
+          <button id="reset-profile-button" class="menu-action menu-action-soft" type="button">프로필 초기화</button>
+          <button id="close-menu-button" class="menu-action menu-action-close" type="button">메뉴 닫기</button>
+        </div>
       </section>
       <div class="location-pill"><span class="dot"></span> 반짝숲 마을</div>
       <section class="word-progress" aria-label="글자 수집 진행">
