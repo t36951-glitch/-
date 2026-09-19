@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#dff5e5" />
+    <title>숲속 글자마을 · 1단계</title>
+  </head>
+  <body>
+    <main id="game-shell" aria-label="숲속 글자마을 탑다운 RPG">
+      <canvas id="game-canvas"></canvas>
+      <div class="vignette"></div>
+      <section class="hud hud-top-left" aria-label="캐릭터 정보">
+        <div class="avatar">다</div>
+        <div class="character-info">
+          <div class="name-row"><strong>다온</strong><span>Lv. 1</span></div>
+          <div class="health-track" aria-label="체력 100%"><div class="health-fill"></div></div>
+          <small>숲속 글자마을</small>
+        </div>
+      </section>
+      <section class="hud hud-top-right" aria-label="게임 메뉴">
+        <button class="round-ui" aria-label="메뉴">☰</button>
+        <button class="round-ui" aria-label="설정">⚙</button>
+      </section>
+      <div class="location-pill"><span class="dot"></span> 반짝숲 마을</div>
+      <section class="controls" aria-label="이동 조작">
+        <div class="joystick" id="joystick" aria-label="가상 방향 패드">
+          <div class="joy-ring"><div class="joy-stick"></div></div>
+          <span class="joy-label up">▲</span><span class="joy-label down">▼</span><span class="joy-label left">◀</span><span class="joy-label right">▶</span>
+        </div>
+        <div class="skill-tray" aria-label="스킬 자리표시자">
+          <button class="skill-slot" aria-label="스킬 준비 중"></button><button class="skill-slot" aria-label="스킬 준비 중"></button>
+          <button class="skill-slot" aria-label="스킬 준비 중"></button><button class="skill-slot" aria-label="스킬 준비 중"></button>
+        </div>
+      </section>
+      <div class="help-toast"><span class="key-hint">WASD</span><span>또는 방향키로 산책해요</span></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
