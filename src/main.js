@@ -39,7 +39,7 @@ const riverCenterline = [
 ];
 const RIVER_WATER_HALF_WIDTH = 22;
 // This is the horizontal path crossing over the stream; only this rectangle bypasses river collision.
-const bridgePassage = { x: 1752, y: 730, w: 170, h: 145 };
+const bridgePassage = { x: 1808, y: 760, w: 112, h: 80 };
 const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
