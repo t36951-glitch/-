@@ -49,10 +49,20 @@
       <section id="menu-panel" class="menu-panel" aria-label="모험 메뉴" hidden>
         <div class="menu-card">
           <h2>모험 메뉴</h2>
+          <button id="letter-archive-button" class="menu-action" type="button">글자 보관함</button>
+          <button id="word-archive-button" class="menu-action" type="button">단어 보관함</button>
+          <button id="item-storage-button" class="menu-action" type="button">아이템 창고</button>
           <button id="change-character-button" class="menu-action" type="button">캐릭터 변경</button>
           <button id="restart-adventure-button" class="menu-action" type="button">현재 모험 다시 시작</button>
           <button id="reset-profile-button" class="menu-action menu-action-soft" type="button">프로필 초기화</button>
           <button id="close-menu-button" class="menu-action menu-action-close" type="button">메뉴 닫기</button>
+        </div>
+      </section>
+      <section id="archive-panel" class="archive-panel" aria-live="polite" hidden>
+        <div class="archive-card">
+          <button id="archive-close" class="hint-close" type="button" aria-label="보관함 닫기">닫기</button>
+          <h2 id="archive-title">글자 보관함</h2>
+          <div id="archive-content" class="archive-content"></div>
         </div>
       </section>
       <div class="location-pill"><span class="dot"></span> 반짝숲 마을</div>

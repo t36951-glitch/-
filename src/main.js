@@ -10,7 +10,7 @@ const CHARACTER_PRESETS = {
   archer: { label: '활 용사', body: '#65a77b', hair: '#9a633f', accent: '#efb76a', avatar: '활' },
   mage: { label: '마법사', body: '#9a79c8', hair: '#493d73', accent: '#f6cf73', avatar: '법' }
 };
-const player = { x: 1200, y: 805, radius: 25, speed: 245, facing: 'down', bob: 0, footOffsetY: 46 };
+const player = { x: 1200, y: 805, radius: 25, speed: 245, facing: 'down', facingVector: { x: 0, y: 1 }, bob: 0, footOffsetY: 46 };
 const savedProfile = (() => {
   try { return JSON.parse(localStorage.getItem('letter-kingdom-profile') || 'null'); } catch (error) { return null; }
 })();
@@ -45,7 +45,8 @@ const letterItems = [
   { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, disabled: false, wobble: 0 }
 ];
 const monsterReward = {
-  id: 'monster-sa-reward',
+  id: 'monster-reward',
+  type: 'syllable',
   character: '사',
   x: 1040,
   y: 1050,
@@ -56,6 +57,7 @@ const monsterReward = {
   sparkle: 0,
   source: 'monster-reward'
 };
+const rewardState = { nonSyllableStreak: 0 };
 
 function availableLetterItems() {
   const mapItems = letterItems.filter((item) => !item.disabled);
@@ -139,6 +141,13 @@ const changeCharacterButton = document.querySelector('#change-character-button')
 const restartAdventureButton = document.querySelector('#restart-adventure-button');
 const resetProfileButton = document.querySelector('#reset-profile-button');
 const closeMenuButton = document.querySelector('#close-menu-button');
+const letterArchiveButton = document.querySelector('#letter-archive-button');
+const wordArchiveButton = document.querySelector('#word-archive-button');
+const itemStorageButton = document.querySelector('#item-storage-button');
+const archivePanel = document.querySelector('#archive-panel');
+const archiveTitleEl = document.querySelector('#archive-title');
+const archiveContentEl = document.querySelector('#archive-content');
+const archiveCloseButton = document.querySelector('#archive-close');
 let selectedCharacter = profile.character;
 let letterNoticeTimer;
 let hintHighlightTimer;
@@ -155,6 +164,31 @@ const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
 const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, combatShieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, arrowUntil: 0, hintUntil: 0 };
 const skillChargesEl = document.querySelector('#skill-charges-0');
+const inventory = { mpPotion: 0, combatPotion: 0 };
+const archiveState = { collectedSyllables: [], completedWords: {} };
+
+function loadArchiveState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('letter-kingdom-archive') || '{}');
+    archiveState.collectedSyllables = Array.isArray(saved.collectedSyllables) ? [...new Set(saved.collectedSyllables)] : [];
+    archiveState.completedWords = saved.completedWords && typeof saved.completedWords === 'object' ? saved.completedWords : {};
+    inventory.mpPotion = Math.max(0, Number(saved.mpPotion || 0));
+    inventory.combatPotion = Math.max(0, Number(saved.combatPotion || 0));
+  } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function persistArchiveState() {
+  try {
+    localStorage.setItem('letter-kingdom-archive', JSON.stringify({
+      collectedSyllables: archiveState.collectedSyllables,
+      completedWords: archiveState.completedWords,
+      mpPotion: inventory.mpPotion,
+      combatPotion: inventory.combatPotion
+    }));
+  } catch (error) { /* localStorage may be unavailable */ }
+}
+
+loadArchiveState();
 
 function currentMPSettings() {
   return MP_SETTINGS[profile.character];
@@ -307,6 +341,51 @@ function openMenu() {
   menuButton.setAttribute('aria-expanded', 'true');
 }
 
+let activeArchive = null;
+
+function renderArchive(kind) {
+  activeArchive = kind;
+  archivePanel.hidden = false;
+  closeMenu();
+  archiveTitleEl.textContent = kind === 'letters' ? '글자 보관함' : kind === 'words' ? '단어 보관함' : '아이템 창고';
+  if (kind === 'letters') {
+    const collected = collectedLetters.length ? collectedLetters.join(' + ') : '아직 없어요';
+    const remaining = TARGET_WORD.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
+    const progress = Math.round(collectedLetters.length / TARGET_WORD.length * 100);
+    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${TARGET_WORD.join('')}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${TARGET_WORD.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
+    return;
+  }
+  if (kind === 'words') {
+    const completed = archiveState.completedWords[TARGET_WORD.join('')];
+    archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">🍎</div><div><strong>사과</strong><small>구성: 사 + 과</small></div><span class="archive-status ${completed ? '' : 'is-locked'}">${completed ? `완성 ${completed}` : '잠김'}</span></div></div>`;
+    return;
+  }
+  archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">💧</div><div><strong>MP 회복 물약</strong><small>MP 1 회복</small></div><span class="storage-count">${inventory.mpPotion}개</span><button class="storage-use" data-use-item="mpPotion" ${inventory.mpPotion <= 0 || mp.current >= currentMPSettings().max ? 'disabled' : ''}>사용</button></div><div class="archive-item"><div class="archive-icon">♥</div><div><strong>전투 체력 회복 물약</strong><small>전투 체력 1칸 회복</small></div><span class="storage-count">${inventory.combatPotion}개</span><button class="storage-use" data-use-item="combatPotion" ${inventory.combatPotion <= 0 || combat.current >= combat.max ? 'disabled' : ''}>사용</button></div></div>`;
+}
+
+function closeArchive() {
+  archivePanel.hidden = true;
+  activeArchive = null;
+}
+
+function useStoredItem(type) {
+  if (automaticRest.active) return;
+  if (type === 'mpPotion') {
+    if (inventory.mpPotion <= 0 || mp.current >= currentMPSettings().max) return showNotice('MP가 이미 가득 차 있어요.', 1400);
+    inventory.mpPotion -= 1;
+    mp.current = Math.min(currentMPSettings().max, mp.current + 1);
+    mp.recoveryElapsed = 0;
+    persistMPState(); updateMPHud();
+  } else {
+    if (inventory.combatPotion <= 0 || combat.current >= combat.max) return showNotice('전투 체력이 이미 가득 차 있어요.', 1400);
+    inventory.combatPotion -= 1;
+    combat.current = Math.min(combat.max, combat.current + 1);
+    updateCombatHud();
+  }
+  persistArchiveState();
+  renderArchive('items');
+}
+
 function beginCharacterChange() {
   closeMenu();
   gameStarted = false;
@@ -326,9 +405,15 @@ function resetProfile() {
   try {
     localStorage.removeItem('letter-kingdom-profile');
     localStorage.removeItem('letter-kingdom-mp-states');
+    localStorage.removeItem('letter-kingdom-archive');
   } catch (error) { /* localStorage may be unavailable */ }
   profile.name = '다온';
   profile.character = 'swordsman';
+  archiveState.collectedSyllables = [];
+  archiveState.completedWords = {};
+  inventory.mpPotion = 0;
+  inventory.combatPotion = 0;
+  persistArchiveState();
   selectedCharacter = 'swordsman';
   gameStarted = false;
   applyProfileToHud();
@@ -351,6 +436,14 @@ changeCharacterButton.addEventListener('click', beginCharacterChange);
 restartAdventureButton.addEventListener('click', restartAdventure);
 resetProfileButton.addEventListener('click', resetProfile);
 closeMenuButton.addEventListener('click', closeMenu);
+letterArchiveButton.addEventListener('click', () => renderArchive('letters'));
+wordArchiveButton.addEventListener('click', () => renderArchive('words'));
+itemStorageButton.addEventListener('click', () => renderArchive('items'));
+archiveCloseButton.addEventListener('click', closeArchive);
+archiveContentEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-use-item]');
+  if (button) useStoredItem(button.dataset.useItem);
+});
 welcomeNextButton.addEventListener('click', showSetupStep);
 characterChoiceButtons.forEach((button) => button.addEventListener('click', () => {
   selectedCharacter = button.dataset.character;
@@ -627,6 +720,8 @@ function playSkillSound() {
 
 function completeWord() {
   challenge.status = 'complete';
+  archiveState.completedWords[TARGET_WORD.join('')] = new Date().toLocaleDateString('ko-KR');
+  persistArchiveState();
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
@@ -739,22 +834,40 @@ function updateAutomaticRest(delta) {
 }
 
 function getFacingVector() {
-  return {
-    x: player.facing === 'right' ? 1 : player.facing === 'left' ? -1 : 0,
-    y: player.facing === 'down' ? 1 : player.facing === 'up' ? -1 : 0
-  };
+  return player.facingVector;
 }
 
-function addCombatEffect(x, y, type = 'hit') {
-  attackState.effects.push({ x, y, type, life: type === 'defeat' ? 1.8 : .55, maxLife: type === 'defeat' ? 1.8 : .55 });
+function isTargetInAttackDirection() {
+  const dx = learningMonster.x - player.x;
+  const dy = learningMonster.y - (player.y + player.footOffsetY);
+  const distance = Math.hypot(dx, dy);
+  if (!distance) return true;
+  const targetX = dx / distance;
+  const targetY = dy / distance;
+  const facing = getFacingVector();
+  return targetX * facing.x + targetY * facing.y >= Math.cos(Math.PI / 4);
 }
 
-function dropMonsterSyllableReward() {
-  if (monsterReward.dropped || collectedLetters.includes(monsterReward.character)) return;
-  const mapSa = letterItems.find((item) => item.id === 'sa');
-  if (mapSa) {
-    mapSa.disabled = true;
-    mapSa.collected = false;
+function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
+  attackState.effects.push({ x, y, type, direction: { ...direction }, life: type === 'defeat' ? 1.8 : .55, maxLife: type === 'defeat' ? 1.8 : .55 });
+}
+
+function dropMonsterReward() {
+  const neededCharacter = TARGET_WORD[collectedLetters.length];
+  const needsSyllable = Boolean(neededCharacter && !collectedLetters.includes(neededCharacter));
+  if (monsterReward.dropped || !needsSyllable && rewardState.nonSyllableStreak >= 2) return;
+  const roll = Math.random();
+  const type = needsSyllable && (rewardState.nonSyllableStreak >= 2 || roll < .5)
+    ? 'syllable'
+    : roll < .75 ? 'mpPotion' : 'combatPotion';
+  monsterReward.type = type;
+  monsterReward.character = type === 'syllable' ? neededCharacter : '';
+  if (type === 'syllable') {
+    rewardState.nonSyllableStreak = 0;
+    const mapItem = letterItems.find((item) => item.character === neededCharacter);
+    if (mapItem) { mapItem.disabled = true; mapItem.collected = false; }
+  } else {
+    rewardState.nonSyllableStreak += 1;
   }
   monsterReward.x = learningMonster.x + 38;
   monsterReward.y = learningMonster.y + 24;
@@ -763,7 +876,10 @@ function dropMonsterSyllableReward() {
   monsterReward.dropped = true;
   monsterReward.wobble = 0;
   monsterReward.sparkle = 0;
-  showNotice('몬스터가 ‘사’ 음절을 떨어뜨렸어요!', 2400);
+  const message = type === 'syllable'
+    ? `몬스터가 ‘${monsterReward.character}’ 음절을 떨어뜨렸어요!`
+    : type === 'mpPotion' ? '몬스터가 MP 회복 물약을 떨어뜨렸어요!' : '몬스터가 전투 체력 회복 물약을 떨어뜨렸어요!';
+  showNotice(message, 2400);
 }
 
 function damageTrainingMonster(amount = 1) {
@@ -782,7 +898,7 @@ function damageTrainingMonster(amount = 1) {
     attackState.projectiles.length = 0;
     addCombatEffect(learningMonster.x, learningMonster.y, 'defeat');
     showNotice('훈련 몬스터가 빛의 친구가 되었어요!', 2200);
-    dropMonsterSyllableReward();
+    dropMonsterReward();
   }
   return true;
 }
@@ -808,8 +924,8 @@ function useBasicAttack() {
   attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
     const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
-    if (!learningMonster.resolved && distance <= 125) damageTrainingMonster(1);
-    addCombatEffect(player.x, player.y - 12, 'slash');
+    if (!learningMonster.resolved && distance <= 125 && isTargetInAttackDirection()) damageTrainingMonster(1);
+    addCombatEffect(player.x, player.y - 12, 'slash', getFacingVector());
   } else if (profile.character === 'archer') {
     queueProjectile('arrow');
     addCombatEffect(player.x, player.y, 'shot');
@@ -887,22 +1003,38 @@ function collectNearbyLetter() {
     wrongContact.touchingItemId = null;
     return;
   }
-  if (item.character !== neededCharacter) {
+  const isMonsterReward = item.source === 'monster-reward';
+  if ((!isMonsterReward || monsterReward.type === 'syllable') && item.character !== neededCharacter) {
     handleWrongLetterContact(item);
     return;
   }
   item.collected = true;
-  if (item.source === 'monster-reward') {
+  if (isMonsterReward) {
     monsterReward.active = false;
     monsterReward.collected = true;
+    if (monsterReward.type === 'syllable') {
+      collectedLetters.push(item.character);
+      if (!archiveState.collectedSyllables.includes(item.character)) archiveState.collectedSyllables.push(item.character);
+      pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
+      showNotice(`‘${item.character}’ 음절을 획득했어요!`, 2200);
+    } else if (monsterReward.type === 'mpPotion') {
+      inventory.mpPotion += 1;
+      showNotice('MP 회복 물약을 창고에 보관했어요!', 1800);
+    } else {
+      inventory.combatPotion += 1;
+      showNotice('전투 체력 회복 물약을 창고에 보관했어요!', 1800);
+    }
+    persistArchiveState();
+  } else {
+    collectedLetters.push(item.character);
+    if (!archiveState.collectedSyllables.includes(item.character)) archiveState.collectedSyllables.push(item.character);
+    pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
+    persistArchiveState();
+    if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
+    else showLetterNotice(item.character);
   }
-  collectedLetters.push(item.character);
-  pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
   wrongContact.touchingItemId = null;
   updateCollectionHud();
-  if (item.source === 'monster-reward') showNotice('‘사’ 음절을 획득했어요!', 2200);
-  else if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
-  else showLetterNotice(item.character);
   if (collectedLetters.length === TARGET_WORD.length) completeWord();
 }
 
@@ -1106,6 +1238,13 @@ function direction() {
   if (keys.has('s') || keys.has('arrowdown')) y += 1;
   const len = Math.hypot(x, y);
   return len ? { x: x / Math.max(1, len), y: y / Math.max(1, len) } : { x: 0, y: 0 };
+}
+
+function quantizeDirection(x, y) {
+  if (!x && !y) return player.facingVector;
+  const angle = Math.atan2(y, x);
+  const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  return { x: Math.abs(Math.cos(snapped)) < .01 ? 0 : Math.sign(Math.cos(snapped)), y: Math.abs(Math.sin(snapped)) < .01 ? 0 : Math.sign(Math.sin(snapped)) };
 }
 
 function circleIntersectsRect(cx, cy, radius, rect) {
@@ -1321,27 +1460,30 @@ function drawMonsterReward(item) {
   const now = performance.now();
   item.sparkle += .016;
   const pulse = 1 + Math.sin(now / 180) * .08;
+  const isSyllable = item.type === 'syllable';
+  const isMpPotion = item.type === 'mpPotion';
   ctx.save();
   ctx.translate(item.x, item.y);
   ctx.scale(pulse, pulse);
-  ctx.fillStyle = 'rgba(255, 221, 91, .28)';
+  ctx.fillStyle = isSyllable ? 'rgba(255, 221, 91, .28)' : isMpPotion ? 'rgba(91, 166, 239, .28)' : 'rgba(240, 113, 102, .28)';
   ctx.beginPath(); ctx.arc(0, 0, 48 + Math.sin(now / 150) * 5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff4a2';
+  ctx.fillStyle = isSyllable ? '#fff4a2' : isMpPotion ? '#bde4ff' : '#ffd0c2';
   for (let index = 0; index < 6; index += 1) {
     const angle = index * Math.PI / 3 + now / 450;
     const radius = 37 + Math.sin(now / 130 + index) * 4;
     ctx.beginPath(); ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius, 4, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = '#fff8c7';
-  ctx.strokeStyle = '#e3a841';
+  ctx.fillStyle = isSyllable ? '#fff8c7' : isMpPotion ? '#d8f0ff' : '#ffe2d7';
+  ctx.strokeStyle = isSyllable ? '#e3a841' : isMpPotion ? '#4d8dcc' : '#df775e';
   ctx.lineWidth = 5;
   ctx.beginPath(); ctx.arc(0, 0, 35, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#d56f59';
-  ctx.font = 'bold 40px Jua, "Apple SD Gothic Neo", sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('사', 0, 2);
+  ctx.fillStyle = isSyllable ? '#d56f59' : isMpPotion ? '#397bb7' : '#d85f63';
+  ctx.font = `bold ${isSyllable ? 40 : 27}px Jua, "Apple SD Gothic Neo", sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(isSyllable ? item.character : isMpPotion ? 'MP' : '♥', 0, 2);
   ctx.fillStyle = '#c47b45';
   ctx.font = 'bold 14px Jua, "Apple SD Gothic Neo", sans-serif';
-  ctx.fillText('보상 음절', 0, 61);
+  ctx.fillText(isSyllable ? '보상 음절' : isMpPotion ? 'MP 물약' : '체력 물약', 0, 61);
   ctx.restore();
 }
 
@@ -1472,8 +1614,10 @@ function drawCombatAttacks() {
       ctx.fillStyle = '#fff2a1'; ctx.strokeStyle = '#fff9d7'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.arc(effect.x, effect.y, 20 + progress * 80, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     } else if (effect.type === 'slash') {
+      ctx.translate(effect.x, effect.y);
+      ctx.rotate(Math.atan2(effect.direction.y, effect.direction.x));
       ctx.strokeStyle = '#fff0a0'; ctx.lineWidth = 8;
-      ctx.beginPath(); ctx.arc(effect.x, effect.y, 43 + progress * 20, -1.4, 1.2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 43 + progress * 20, -.65, .65); ctx.stroke();
     } else {
       ctx.fillStyle = effect.type === 'cast' ? '#f4d9ff' : '#fff1a2';
       ctx.beginPath(); ctx.arc(effect.x, effect.y, 12 + progress * 16, 0, Math.PI * 2); ctx.fill();
@@ -1538,6 +1682,9 @@ function resetChallenge() {
   monsterReward.dropped = false;
   monsterReward.wobble = 0;
   monsterReward.sparkle = 0;
+  monsterReward.type = 'syllable';
+  monsterReward.character = '사';
+  rewardState.nonSyllableStreak = 0;
   collectedLetters.length = 0;
   pickupEffects.length = 0;
   wrongContact.touchingItemId = null;
@@ -1665,6 +1812,7 @@ function update(delta) {
     if (canMoveTo(nextX, player.y)) player.x = nextX;
     if (canMoveTo(player.x, nextY)) player.y = nextY;
     player.bob += delta * 9;
+    player.facingVector = quantizeDirection(dir.x, dir.y);
     if (Math.abs(dir.x) > Math.abs(dir.y)) player.facing = dir.x > 0 ? 'right' : 'left';
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
