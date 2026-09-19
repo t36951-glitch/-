@@ -22,8 +22,7 @@ const flowers = [[520, 460], [570, 470], [650, 480], [1550, 760], [1600, 780], [
 const fences = [[820, 620], [860, 620], [900, 620], [940, 620], [980, 620]];
 const collisions = [
   ...trees.map(([x, y]) => ({ x, y, r: 39 })),
-  ...rocks.map(([x, y]) => ({ x, y, r: 30 })),
-  { x: 1260, y: 585, r: 20 }, { x: 1380, y: 585, r: 20 }
+  ...rocks.map(([x, y]) => ({ x, y, r: 30 }))
 ];
 
 // Static map barriers. House walls keep a doorway-sized opening on the south side.
