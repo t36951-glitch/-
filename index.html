@@ -27,9 +27,18 @@
         <div class="word-goal"><span>목표 단어</span><strong>사과</strong></div>
         <div class="word-collected"><span>수집한 글자</span><strong id="collected-letters">아직 없어요</strong></div>
         <div class="word-count"><span id="letter-count">0/2</span></div>
+        <div class="word-state"><span>상태</span><strong id="word-state">글자를 모아 보세요!</strong><button id="retry-collect" type="button">다시 모으기</button></div>
       </section>
       <div id="door-notice" class="door-notice" role="status" aria-live="polite">집 안으로 들어가는 기능은 다음 단계에서 추가됩니다.</div>
       <div id="letter-notice" class="letter-notice" role="status" aria-live="polite"></div>
+      <section id="success-overlay" class="success-overlay" aria-live="polite" hidden>
+        <div class="success-card">
+          <div class="success-spark">✦</div>
+          <h1>사과 낱말 미션 성공!</h1>
+          <p>글자를 모아 문을 통과했어요.</p>
+          <button id="retry-button" type="button">다시 도전하기</button>
+        </div>
+      </section>
       <section class="controls" aria-label="이동 조작">
         <div class="joystick" id="joystick" aria-label="가상 방향 패드">
           <div class="joy-ring"><div class="joy-stick"></div></div>

@@ -19,21 +19,73 @@ const letterItems = [
 ];
 const collectedLetters = [];
 const pickupEffects = [];
+const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
+const wordStateEl = document.querySelector('#word-state');
 const letterNotice = document.querySelector('#letter-notice');
+const successOverlay = document.querySelector('#success-overlay');
+const retryCollectButton = document.querySelector('#retry-collect');
+const retryButton = document.querySelector('#retry-button');
 let letterNoticeTimer;
+let successAudioContext;
+let successEffect = null;
 
 function updateCollectionHud() {
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
   letterCountEl.textContent = `${collectedLetters.length}/${TARGET_WORD.length}`;
+  wordStateEl.textContent = challenge.status === 'complete' ? '사과 완성!' : challenge.status === 'wrong' ? '순서를 다시 살펴봐요.' : '글자를 모아 보세요!';
+  wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
+  wordStateEl.classList.toggle('is-wrong', challenge.status === 'wrong');
+}
+
+function showNotice(message, duration = 1800) {
+  letterNotice.textContent = message;
+  letterNotice.classList.add('is-visible');
+  window.clearTimeout(letterNoticeTimer);
+  letterNoticeTimer = window.setTimeout(() => letterNotice.classList.remove('is-visible'), duration);
 }
 
 function showLetterNotice(character) {
-  letterNotice.textContent = `${character} 글자를 찾았어요!`;
-  letterNotice.classList.add('is-visible');
-  window.clearTimeout(letterNoticeTimer);
-  letterNoticeTimer = window.setTimeout(() => letterNotice.classList.remove('is-visible'), 1800);
+  showNotice(`${character} 글자를 찾았어요!`);
+}
+
+function playSuccessSound() {
+  try {
+    successAudioContext ??= new AudioContext();
+    const now = successAudioContext.currentTime;
+    [523.25, 659.25, 783.99].forEach((frequency, index) => {
+      const oscillator = successAudioContext.createOscillator();
+      const gain = successAudioContext.createGain();
+      oscillator.type = 'sine'; oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + index * 0.08 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.08 + 0.25);
+      oscillator.connect(gain); gain.connect(successAudioContext.destination);
+      oscillator.start(now + index * 0.08); oscillator.stop(now + index * 0.08 + 0.27);
+    });
+  } catch (error) {
+    // Browsers that block Web Audio still receive the visual success feedback.
+  }
+}
+
+function completeWord() {
+  challenge.status = 'complete';
+  challenge.doorOpen = true;
+  successEffect = { x: stageDoor.x, y: stageDoor.y, life: 2.4 };
+  updateCollectionHud();
+  showNotice('글자가 모여 단어가 되었어요! 문이 열렸습니다.', 3000);
+  playSuccessSound();
+}
+
+function evaluateWordOrder() {
+  if (collectedLetters.length !== TARGET_WORD.length) return;
+  if (collectedLetters.every((character, index) => character === TARGET_WORD[index])) completeWord();
+  else {
+    challenge.status = 'wrong';
+    updateCollectionHud();
+    showNotice('글자 순서를 다시 살펴봐요.', 2600);
+  }
 }
 
 function collectNearbyLetter() {
@@ -45,11 +97,16 @@ function collectNearbyLetter() {
   pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
   updateCollectionHud();
   showLetterNotice(item.character);
+  evaluateWordOrder();
 }
 
 function updatePickupEffects(delta) {
   pickupEffects.forEach((effect) => { effect.life -= delta; });
   while (pickupEffects.length && pickupEffects[0].life <= 0) pickupEffects.shift();
+  if (successEffect) {
+    successEffect.life -= delta;
+    if (successEffect.life <= 0) successEffect = null;
+  }
 }
 
 const trees = [
@@ -80,6 +137,7 @@ const riverCenterline = [
 const RIVER_WATER_HALF_WIDTH = 22;
 // This is the horizontal path crossing over the stream; only this rectangle bypasses river collision.
 const bridgePassage = { x: 1808, y: 760, w: 112, h: 80 };
+const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 };
 const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
@@ -195,7 +253,8 @@ function canMoveTo(x, y) {
     const testY = rect.name.startsWith('house') ? footY : y;
     return circleIntersectsRect(x, testY, player.radius, rect);
   });
-  return !hitsNaturalObstacle && !hitsStaticObstacle && !isBlockedByRiver(x, y);
+  const hitsClosedDoor = !challenge.doorOpen && circleIntersectsRect(x, footY, player.radius, stageDoor);
+  return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !isBlockedByRiver(x, y);
 }
 
 function drawLetterItem(item) {
@@ -240,7 +299,73 @@ function drawPickupEffects() {
     }
     ctx.restore();
   });
+  if (successEffect) {
+    const progress = 1 - successEffect.life / 2.4;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, successEffect.life / 2.4);
+    ctx.fillStyle = '#fff1a2';
+    ctx.font = 'bold 30px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('사과 완성!', successEffect.x, successEffect.y - 48 - progress * 28);
+    for (let i = 0; i < 8; i += 1) {
+      const angle = i * Math.PI / 4 + progress;
+      ctx.beginPath();
+      ctx.arc(successEffect.x + Math.cos(angle) * (26 + progress * 35), successEffect.y - 20 + Math.sin(angle) * (18 + progress * 26), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }
+
+function drawStageDoor() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(61, 98, 73, .2)';
+  ctx.beginPath(); ctx.ellipse(stageDoor.xCenter, stageDoor.y + 34, 76, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#8b654b';
+  roundedRect(stageDoor.x - 9, stageDoor.y - 21, 18, 62, 8); ctx.fill();
+  roundedRect(stageDoor.x + stageDoor.w - 9, stageDoor.y - 21, 18, 62, 8); ctx.fill();
+  if (challenge.doorOpen) {
+    ctx.fillStyle = 'rgba(247, 201, 91, .24)';
+    ctx.beginPath(); ctx.arc(stageDoor.xCenter, stageDoor.y + 2, 44, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e9bb58';
+    ctx.font = 'bold 18px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('열림', stageDoor.xCenter, stageDoor.y - 30);
+  } else {
+    ctx.fillStyle = '#d98569';
+    roundedRect(stageDoor.x, stageDoor.y, stageDoor.w, stageDoor.h, 7); ctx.fill();
+    ctx.fillStyle = '#fff1c1';
+    ctx.font = 'bold 17px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('닫힌 문', stageDoor.xCenter, stageDoor.y + 20);
+  }
+  ctx.restore();
+}
+
+function checkDoorPassage() {
+  if (!challenge.doorOpen || challenge.doorPassed) return;
+  const footY = player.y + player.footOffsetY;
+  const crossedDoor = circleIntersectsRect(player.x, footY, player.radius, stageDoor) && footY < stageDoor.y + stageDoor.h / 2;
+  if (!crossedDoor) return;
+  challenge.doorPassed = true;
+  successOverlay.hidden = false;
+}
+
+function resetChallenge() {
+  letterItems.forEach((item) => { item.collected = false; });
+  collectedLetters.length = 0;
+  pickupEffects.length = 0;
+  successEffect = null;
+  challenge.status = 'collecting';
+  challenge.doorOpen = false;
+  challenge.doorPassed = false;
+  player.x = 1200; player.y = 805;
+  camera.x = 0; camera.y = 0;
+  successOverlay.hidden = true;
+  letterNotice.classList.remove('is-visible');
+  updateCollectionHud();
+}
+
+retryCollectButton.addEventListener('click', resetChallenge);
+retryButton.addEventListener('click', resetChallenge);
 
 function drawCollisionDebug() {
   if (!DEBUG_COLLISIONS) return;
@@ -290,7 +415,9 @@ function update(delta) {
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
   collectNearbyLetter();
+  if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
   updatePickupEffects(delta);
+  checkDoorPassage();
   updateDoorNotice();
   const viewW = shell.clientWidth; const viewH = shell.clientHeight;
   camera.x += (player.x - viewW / 2 - camera.x) * Math.min(1, delta * 7);
@@ -318,7 +445,7 @@ function drawWorld() {
   // bridge stream
   ctx.strokeStyle = '#83cfe0'; ctx.lineWidth = 44; ctx.beginPath(); ctx.moveTo(1830, -50); ctx.bezierCurveTo(1810, 350, 1900, 610, 1810, 920); ctx.bezierCurveTo(1730, 1160, 1840, 1430, 1780, 1700); ctx.stroke();
   ctx.strokeStyle = '#c6ebec'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(1815, -50); ctx.bezierCurveTo(1795, 350, 1885, 610, 1795, 920); ctx.bezierCurveTo(1715, 1160, 1825, 1430, 1765, 1700); ctx.stroke();
-  drawHouse(1260, 480); drawHouse(430, 760); drawSign(1090, 720);
+  drawHouse(1260, 480); drawHouse(430, 760); drawSign(1090, 720); drawStageDoor();
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
