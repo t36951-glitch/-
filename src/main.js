@@ -5,7 +5,7 @@ const ctx = canvas.getContext('2d');
 const shell = document.querySelector('#game-shell');
 
 const WORLD = { width: 2400, height: 1600 };
-const player = { x: 1200, y: 805, radius: 25, speed: 245, facing: 'down', bob: 0 };
+const player = { x: 1200, y: 805, radius: 25, speed: 245, facing: 'down', bob: 0, footOffsetY: 46 };
 const camera = { x: 0, y: 0 };
 const keys = new Set();
 const touchVector = { x: 0, y: 0 };
@@ -38,6 +38,7 @@ const riverCenterline = [
   [1830, -50], [1810, 350], [1900, 610], [1810, 920], [1730, 1160], [1840, 1430], [1780, 1700]
 ];
 const bridgePassage = { x: 1760, y: 748, w: 150, h: 112 };
+const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
   const doorGapLeft = x - 41;
@@ -55,10 +56,14 @@ function houseCollisionRects(x, y) {
   ];
 }
 
-const houseDoors = [
-  { x: 1260, y: 530 },
-  { x: 430, y: 810 }
+const houseLayouts = [
+  { x: 1260, y: 480, name: 'right house' },
+  { x: 430, y: 760, name: 'left house' }
 ];
+const houseDoors = houseLayouts.map(({ x, y, name }) => ({ x, y: y + 55, name }));
+const doorPassages = houseLayouts.map(({ x, y, name }) => ({
+  x: x - 41, y: y + 28, w: 82, h: 64, name: `${name} door passage`
+}));
 const doorNotice = document.querySelector('#door-notice');
 function updateDoorNotice() {
   const atDoor = houseDoors.some((door) => Math.hypot(player.x - door.x, player.y - door.y) < 52);
@@ -140,9 +145,37 @@ function isBlockedByRiver(x, y) {
 
 function canMoveTo(x, y) {
   if (x < 45 || y < 45 || x > WORLD.width - 45 || y > WORLD.height - 45) return false;
+  const footY = y + player.footOffsetY;
   const hitsNaturalObstacle = collisions.some((item) => Math.hypot(x - item.x, y - item.y) <= item.r + player.radius - 5);
-  const hitsStaticObstacle = staticRects.some((rect) => circleIntersectsRect(x, y, player.radius, rect));
+  const hitsStaticObstacle = staticRects.some((rect) => {
+    const testY = rect.name.startsWith('house') ? footY : y;
+    return circleIntersectsRect(x, testY, player.radius, rect);
+  });
   return !hitsNaturalObstacle && !hitsStaticObstacle && !isBlockedByRiver(x, y);
+}
+
+function drawCollisionDebug() {
+  if (!DEBUG_COLLISIONS) return;
+  ctx.save();
+  staticRects.filter((rect) => rect.name.startsWith('house')).forEach((rect) => {
+    ctx.fillStyle = 'rgba(232, 76, 76, .28)';
+    ctx.strokeStyle = 'rgba(183, 35, 35, .8)';
+    ctx.lineWidth = 2;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  });
+  doorPassages.forEach((door) => {
+    ctx.fillStyle = 'rgba(69, 196, 108, .34)';
+    ctx.strokeStyle = 'rgba(31, 133, 69, .9)';
+    ctx.fillRect(door.x, door.y, door.w, door.h);
+    ctx.strokeRect(door.x, door.y, door.w, door.h);
+  });
+  const rightDoor = houseDoors.find((door) => door.name === 'right house');
+  ctx.fillStyle = '#1d6f3b';
+  ctx.beginPath(); ctx.arc(rightDoor.x, rightDoor.y, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#253b30';
+  ctx.beginPath(); ctx.arc(player.x, player.y + player.footOffsetY, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 function update(delta) {
   const dir = direction();
@@ -187,6 +220,7 @@ function drawWorld() {
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
   drawPlayer();
+  drawCollisionDebug();
   ctx.restore();
 }
 function drawTree(x, y) {
