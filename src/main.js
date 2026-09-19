@@ -25,7 +25,7 @@ const letterNotice = document.querySelector('#letter-notice');
 let letterNoticeTimer;
 
 function updateCollectionHud() {
-  collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(' · ') : '아직 없어요';
+  collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
   letterCountEl.textContent = `${collectedLetters.length}/${TARGET_WORD.length}`;
 }
 
