@@ -46,7 +46,23 @@ const letterItems = [
 ];
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
-const learningMonster = { x: 1040, y: 1050, resolved: false, wobble: 0 };
+const learningMonster = {
+  x: 1040,
+  y: 1050,
+  resolved: false,
+  wobble: 0,
+  hp: 3,
+  maxHp: 3,
+  state: 'idle',
+  warningUntil: 0,
+  nextAttackAt: 0,
+  attackActiveUntil: 0,
+  attackToken: 0,
+  defeatStartedAt: 0,
+  quizResolved: false
+};
+const combat = { current: 3, max: 3, restActive: false, restElapsed: 0 };
+const attackState = { cooldownUntil: 0, projectiles: [], effects: [], nextId: 1 };
 const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
@@ -54,7 +70,7 @@ const energy = { current: MAX_ENERGY };
 const mp = { current: MP_SETTINGS[profile.character].max, recoveryElapsed: 0, saveElapsed: 0 };
 const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false };
-const automaticRest = { active: false, elapsed: 0, lastSecond: 5 };
+const automaticRest = { active: false, elapsed: 0, lastSecond: 5, reason: 'energy' };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
@@ -62,6 +78,7 @@ const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
+const combatHeartsEl = document.querySelector('#combat-hearts');
 const mpCountEl = document.querySelector('#mp-count');
 const mpFillEl = document.querySelector('#mp-fill');
 const monsterEnergyEl = document.querySelector('#monster-energy');
@@ -101,6 +118,8 @@ let recoveryEffect = null;
 let monsterQuizOpen = false;
 let monsterAnswerCooldownUntil = 0;
 let monsterUnlockTimer;
+let combatAudioContext;
+const attackButton = document.querySelector('#attack-button');
 const skillButton = document.querySelector('#skill-button-0');
 const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
@@ -199,6 +218,11 @@ function updateSkillHud(now = performance.now()) {
       : '';
   }
   skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}${canAttempt && !ready ? ' 마나가 부족해요' : ''}`);
+  if (attackButton) {
+    const attackReady = gameStarted && energy.current > 0 && !automaticRest.active && !monsterQuizOpen && now >= attackState.cooldownUntil;
+    attackButton.disabled = !attackReady;
+    attackButton.setAttribute('aria-label', '기본 공격');
+  }
 }
 
 function applyProfileToHud() {
@@ -320,11 +344,21 @@ function updateMPHud() {
   }
 }
 
+function updateCombatHud() {
+  if (!combatHeartsEl) return;
+  combatHeartsEl.querySelectorAll('span').forEach((heart, index) => {
+    heart.classList.toggle('is-empty', index >= combat.current);
+    heart.setAttribute('aria-hidden', index >= combat.current ? 'true' : 'false');
+  });
+  combatHeartsEl.setAttribute('aria-label', `전투 체력 ${combat.current}/${combat.max}`);
+}
+
 function updateEnergyHud() {
   energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
   energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
   energyPipsEl.classList.toggle('is-empty', energy.current === 0);
   if (monsterEnergyEl) monsterEnergyEl.textContent = `에너지 ${energy.current}/${MAX_ENERGY}`;
+  updateCombatHud();
   updateMPHud();
   updateSkillHud();
 }
@@ -391,7 +425,7 @@ function openMonsterQuiz() {
 }
 
 function checkMonsterProximity() {
-  if (learningMonster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  if (learningMonster.resolved || learningMonster.quizResolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
   const footY = player.y + player.footOffsetY;
   if (Math.hypot(player.x - learningMonster.x, footY - learningMonster.y) <= player.radius + 75) openMonsterQuiz();
 }
@@ -400,7 +434,7 @@ function answerMonster(answer) {
   const now = performance.now();
   if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
   if (answer === '사') {
-    learningMonster.resolved = true;
+    learningMonster.quizResolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
     setMonsterChoicesDisabled(false);
@@ -497,6 +531,7 @@ function useLearningSkill() {
 }
 
 skillButton.addEventListener('click', useLearningSkill);
+attackButton?.addEventListener('click', useBasicAttack);
 
 function playSuccessSound() {
   try {
@@ -514,6 +549,27 @@ function playSuccessSound() {
     });
   } catch (error) {
     // Browsers that block Web Audio still receive the visual success feedback.
+  }
+}
+
+function playCombatSound(kind = 'hit') {
+  try {
+    combatAudioContext ??= new AudioContext();
+    const now = combatAudioContext.currentTime;
+    const frequencies = kind === 'warning' ? [392, 523.25] : [659.25, 783.99];
+    frequencies.forEach((frequency, index) => {
+      const oscillator = combatAudioContext.createOscillator();
+      const gain = combatAudioContext.createGain();
+      oscillator.type = kind === 'warning' ? 'triangle' : 'sine';
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * .09);
+      gain.gain.exponentialRampToValueAtTime(.07, now + index * .09 + .02);
+      gain.gain.exponentialRampToValueAtTime(.0001, now + index * .09 + .16);
+      oscillator.connect(gain); gain.connect(combatAudioContext.destination);
+      oscillator.start(now + index * .09); oscillator.stop(now + index * .09 + .18);
+    });
+  } catch (error) {
+    // Visual combat feedback remains available when Web Audio is blocked.
   }
 }
 
@@ -556,9 +612,10 @@ function knockBackFromLetter(item) {
   if (canMoveTo(player.x, nextY)) player.y = nextY;
 }
 
-function startAutomaticRest() {
+function startAutomaticRest(reason = 'energy') {
   if (automaticRest.active) return;
   resetSkillState();
+  automaticRest.reason = reason;
   automaticRest.active = true;
   automaticRest.elapsed = 0;
   automaticRest.lastSecond = 5;
@@ -578,7 +635,12 @@ function startAutomaticRest() {
   player.y = restArea.yCenter - player.footOffsetY;
   restCountdownNumber.textContent = '5';
   restCountdown.hidden = false;
-  showNotice('에너지가 부족해요. 집으로 돌아가 쉴게요.', 3200);
+  showNotice(
+    reason === 'combat'
+      ? '전투 체력이 부족해요. 집으로 돌아가 쉴게요.'
+      : '에너지가 부족해요. 집으로 돌아가 쉴게요.',
+    3200
+  );
 }
 
 function updateAutomaticRest(delta) {
@@ -594,6 +656,7 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
+  combat.current = combat.max;
   mp.current = currentMPSettings().max;
   mp.recoveryElapsed = 0;
   mp.saveElapsed = 0;
@@ -607,7 +670,84 @@ function updateAutomaticRest(delta) {
   restState.noticeShown = true;
   recoveryEffect = { x: restArea.xCenter, y: restArea.yCenter, life: 2 };
   updateEnergyHud();
-  showNotice('푹 쉬었어요! 에너지가 모두 회복되었어요.', 2600);
+  showNotice('푹 쉬었어요! 전투 체력과 에너지가 모두 회복되었어요.', 2600);
+}
+
+function getFacingVector() {
+  return {
+    x: player.facing === 'right' ? 1 : player.facing === 'left' ? -1 : 0,
+    y: player.facing === 'down' ? 1 : player.facing === 'up' ? -1 : 0
+  };
+}
+
+function addCombatEffect(x, y, type = 'hit') {
+  attackState.effects.push({ x, y, type, life: type === 'defeat' ? 1.8 : .55, maxLife: type === 'defeat' ? 1.8 : .55 });
+}
+
+function damageTrainingMonster(amount = 1) {
+  if (learningMonster.resolved || learningMonster.hp <= 0) return false;
+  learningMonster.hp = Math.max(0, learningMonster.hp - amount);
+  learningMonster.wobble = 1;
+  addCombatEffect(learningMonster.x, learningMonster.y, 'hit');
+  if (learningMonster.hp === 0) {
+    learningMonster.resolved = true;
+    learningMonster.state = 'friend';
+    learningMonster.defeatStartedAt = performance.now();
+    learningMonster.warningUntil = 0;
+    learningMonster.attackActiveUntil = 0;
+    attackState.projectiles.length = 0;
+    addCombatEffect(learningMonster.x, learningMonster.y, 'defeat');
+    showNotice('훈련 몬스터가 빛의 친구가 되었어요!', 2200);
+  }
+  return true;
+}
+
+function queueProjectile(type) {
+  const direction = getFacingVector();
+  attackState.projectiles.push({
+    id: attackState.nextId++,
+    type,
+    x: player.x + direction.x * 30,
+    y: player.y + direction.y * 30,
+    vx: direction.x * (type === 'arrow' ? 520 : 400),
+    vy: direction.y * (type === 'arrow' ? 520 : 400),
+    life: type === 'arrow' ? .85 : 1.15,
+    maxLife: type === 'arrow' ? .85 : 1.15,
+    hit: false
+  });
+}
+
+function useBasicAttack() {
+  const now = performance.now();
+  if (!gameStarted || automaticRest.active || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
+  attackState.cooldownUntil = now + 420;
+  if (profile.character === 'swordsman') {
+    const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
+    if (!learningMonster.resolved && distance <= 125) damageTrainingMonster(1);
+    addCombatEffect(player.x, player.y - 12, 'slash');
+  } else if (profile.character === 'archer') {
+    queueProjectile('arrow');
+    addCombatEffect(player.x, player.y, 'shot');
+  } else {
+    queueProjectile('orb');
+    addCombatEffect(player.x, player.y, 'cast');
+  }
+}
+
+function updateBasicAttacks(delta) {
+  attackState.effects.forEach((effect) => { effect.life -= delta; });
+  attackState.effects = attackState.effects.filter((effect) => effect.life > 0);
+  attackState.projectiles.forEach((projectile) => {
+    projectile.x += projectile.vx * delta;
+    projectile.y += projectile.vy * delta;
+    projectile.life -= delta;
+    if (!projectile.hit && !learningMonster.resolved && Math.hypot(projectile.x - learningMonster.x, projectile.y - learningMonster.y) <= 38) {
+      projectile.hit = true;
+      projectile.life = 0;
+      damageTrainingMonster(1);
+    }
+  });
+  attackState.projectiles = attackState.projectiles.filter((projectile) => projectile.life > 0);
 }
 
 function consumeLearningShield() {
@@ -805,6 +945,11 @@ resize();
 
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
+  if (event.code === 'Space') {
+    event.preventDefault();
+    if (!event.repeat) useBasicAttack();
+    return;
+  }
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) {
     event.preventDefault();
     keys.add(key);
@@ -879,19 +1024,67 @@ function canMoveTo(x, y) {
   return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !hitsLearningMonster && !isBlockedByRiver(x, y);
 }
 
+function applyTrainingMonsterAttack() {
+  if (learningMonster.resolved || automaticRest.active) return;
+  const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
+  if (distance > 155) return;
+  if (consumeLearningShield()) return;
+  combat.current = Math.max(0, combat.current - 1);
+  updateCombatHud();
+  if (combat.current === 0) startAutomaticRest('combat');
+  else showNotice('몬스터의 공격을 피했어요? 전투 체력이 줄었어요.', 1600);
+}
+
+function updateTrainingMonster() {
+  if (learningMonster.resolved || automaticRest.active || monsterQuizOpen) return;
+  const now = performance.now();
+  const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
+  if (learningMonster.state === 'idle' && distance <= 260 && now >= learningMonster.nextAttackAt) {
+    learningMonster.state = 'warning';
+    learningMonster.warningUntil = now + 1200;
+    learningMonster.nextAttackAt = learningMonster.warningUntil;
+    playCombatSound('warning');
+    showNotice('느낌표! 훈련 몬스터가 공격을 준비해요.', 1500);
+  }
+  if (learningMonster.state === 'warning' && now >= learningMonster.warningUntil) {
+    learningMonster.state = 'attack';
+    learningMonster.attackActiveUntil = now + 320;
+    learningMonster.attackToken += 1;
+    applyTrainingMonsterAttack();
+  }
+  if (learningMonster.state === 'attack' && now >= learningMonster.attackActiveUntil) {
+    learningMonster.state = 'idle';
+    learningMonster.nextAttackAt = now + 1700;
+  }
+  if (learningMonster.state === 'idle' && learningMonster.nextAttackAt && now < learningMonster.nextAttackAt) return;
+}
+
 function drawLearningMonster() {
-  if (learningMonster.resolved) return;
-  const wobble = Math.sin(performance.now() / 420) * 2;
+  const now = performance.now();
+  const wobble = learningMonster.resolved ? 0 : Math.sin(now / 420) * 2;
   const x = learningMonster.x; const y = learningMonster.y + wobble;
-  const near = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y) < 125;
+  const near = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y) < 260;
   ctx.save();
+  if (learningMonster.resolved) {
+    ctx.globalAlpha = .65 + Math.sin(now / 160) * .2;
+    ctx.fillStyle = '#fff2a1';
+    ctx.beginPath(); ctx.arc(x, y, 38 + Math.sin(now / 180) * 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fffbe1';
+    ctx.beginPath(); ctx.arc(x, y - 4, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#d29b55';
+    ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('빛의 친구', x, y + 59);
+    ctx.restore();
+    return;
+  }
   if (near && energy.current > 0 && !automaticRest.active) {
-    ctx.fillStyle = 'rgba(255, 222, 104, .24)';
-    ctx.beginPath(); ctx.arc(x, y, 55 + Math.sin(performance.now() / 180) * 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = learningMonster.state === 'warning' || learningMonster.state === 'attack'
+      ? 'rgba(255, 111, 98, .26)' : 'rgba(255, 222, 104, .24)';
+    ctx.beginPath(); ctx.arc(x, y, 55 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
   }
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(x, y + 38, 42, 12, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#91c5a0';
+  ctx.fillStyle = learningMonster.state === 'attack' ? '#e79b8f' : '#91c5a0';
   ctx.beginPath(); ctx.arc(x, y, 34, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#c9e8b9';
   ctx.beginPath(); ctx.arc(x, y - 4, 27, 0, Math.PI * 2); ctx.fill();
@@ -905,7 +1098,17 @@ function drawLearningMonster() {
   ctx.beginPath(); ctx.arc(x - 24, y - 51, 6, 0, Math.PI * 2); ctx.arc(x + 24, y - 51, 6, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#5b8562';
   ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
-  ctx.textAlign = 'center'; ctx.fillText('글자 친구', x, y + 59);
+  ctx.textAlign = 'center'; ctx.fillText('훈련 몬스터', x, y + 59);
+  const hpWidth = 86;
+  for (let index = 0; index < learningMonster.maxHp; index += 1) {
+    ctx.fillStyle = index < learningMonster.hp ? '#e96f72' : '#e5d9d2';
+    ctx.fillRect(x - hpWidth / 2 + index * 30, y - 75, 24, 7);
+  }
+  if (learningMonster.state === 'warning') {
+    ctx.fillStyle = '#f36f68';
+    ctx.font = 'bold 28px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.fillText('!', x, y - 88 - Math.sin(now / 100) * 5);
+  }
   ctx.restore();
 }
 
@@ -1037,6 +1240,48 @@ function drawPickupEffects() {
   }
 }
 
+function drawCombatAttacks() {
+  const now = performance.now();
+  attackState.projectiles.forEach((projectile) => {
+    const angle = Math.atan2(projectile.vy, projectile.vx);
+    ctx.save();
+    ctx.translate(projectile.x, projectile.y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = Math.max(0, projectile.life / projectile.maxLife);
+    if (projectile.type === 'arrow') {
+      ctx.strokeStyle = '#ffe38a'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(16, 0); ctx.stroke();
+      ctx.fillStyle = '#fff6bc'; ctx.beginPath(); ctx.moveTo(22, 0); ctx.lineTo(10, -7); ctx.lineTo(10, 7); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillStyle = '#e9c9ff';
+      ctx.shadowColor = '#fff1a6'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff9db'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  });
+  attackState.effects.forEach((effect) => {
+    const progress = 1 - effect.life / effect.maxLife;
+    const alpha = Math.max(0, effect.life / effect.maxLife);
+    ctx.save(); ctx.globalAlpha = alpha;
+    if (effect.type === 'defeat') {
+      ctx.fillStyle = '#fff2a1'; ctx.strokeStyle = '#fff9d7'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(effect.x, effect.y, 20 + progress * 80, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else if (effect.type === 'slash') {
+      ctx.strokeStyle = '#fff0a0'; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.arc(effect.x, effect.y, 43 + progress * 20, -1.4, 1.2); ctx.stroke();
+    } else {
+      ctx.fillStyle = effect.type === 'cast' ? '#f4d9ff' : '#fff1a2';
+      ctx.beginPath(); ctx.arc(effect.x, effect.y, 12 + progress * 16, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  });
+  if (learningMonster.state === 'attack' && now < learningMonster.attackActiveUntil) {
+    ctx.save(); ctx.strokeStyle = 'rgba(244, 111, 104, .72)'; ctx.lineWidth = 5; ctx.setLineDash([8, 7]);
+    ctx.beginPath(); ctx.moveTo(learningMonster.x, learningMonster.y); ctx.lineTo(player.x, player.y + player.footOffsetY); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  }
+}
+
 function drawRestArea() {
   ctx.save();
   ctx.fillStyle = 'rgba(255, 255, 255, .26)';
@@ -1103,6 +1348,19 @@ function resetChallenge() {
   treasureChest.sparkle = 0;
   learningMonster.resolved = false;
   learningMonster.wobble = 0;
+  learningMonster.hp = learningMonster.maxHp;
+  learningMonster.state = 'idle';
+  learningMonster.warningUntil = 0;
+  learningMonster.nextAttackAt = 0;
+  learningMonster.attackActiveUntil = 0;
+  learningMonster.attackToken = 0;
+  learningMonster.defeatStartedAt = 0;
+  learningMonster.quizResolved = false;
+  attackState.cooldownUntil = 0;
+  attackState.projectiles.length = 0;
+  attackState.effects.length = 0;
+  combat.current = combat.max;
+  automaticRest.reason = 'energy';
   monsterQuizOpen = false;
   monsterOverlay.hidden = true;
   monsterFeedback.textContent = '';
@@ -1111,6 +1369,7 @@ function resetChallenge() {
   nextLetterEl.classList.remove('is-highlighted');
   resetSkillState();
   energy.current = MAX_ENERGY;
+  combat.current = combat.max;
   mp.current = currentMPSettings().max;
   mp.recoveryElapsed = 0;
   mp.saveElapsed = 0;
@@ -1178,6 +1437,7 @@ function update(delta) {
   updateMPRecovery(delta);
   const now = performance.now();
   updateSkillHud(now);
+  updateTrainingMonster();
   const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
@@ -1195,6 +1455,7 @@ function update(delta) {
   checkMonsterProximity();
   if (!automaticRest.active && energy.current > 0) updateRestZone(delta);
   updatePickupEffects(delta);
+  updateBasicAttacks(delta);
   checkDoorPassage();
   updateDoorNotice();
   const viewW = shell.clientWidth; const viewH = shell.clientHeight;
@@ -1230,6 +1491,7 @@ function drawWorld() {
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
   drawTreasureChest();
   letterItems.filter((item) => !item.collected).forEach(drawLetterItem);
+  drawCombatAttacks();
   drawPickupEffects();
   drawPlayer();
   drawCollisionDebug();
