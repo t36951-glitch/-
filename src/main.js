@@ -138,7 +138,8 @@ function distanceToSegment(px, py, ax, ay, bx, by) {
 
 function isBlockedByRiver(x, y) {
   const footY = y + player.footOffsetY;
-  if (circleIntersectsRect(x, footY, player.radius, bridgePassage)) return false;
+  const onBridge = x >= bridgePassage.x && x <= bridgePassage.x + bridgePassage.w && footY >= bridgePassage.y && footY <= bridgePassage.y + bridgePassage.h;
+  if (onBridge) return false;
   const riverCollisionRadius = RIVER_WATER_HALF_WIDTH + player.radius;
   return riverCenterline.slice(0, -1).some(([ax, ay], index) => {
     const [bx, by] = riverCenterline[index + 1];
