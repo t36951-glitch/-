@@ -801,7 +801,7 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
-  learningMonster.hp = learningMonster.maxHp;
+  learningMonster.hp = Math.ceil(learningMonster.maxHp / 2);
   learningMonster.recoveryElapsed = 0;
   learningMonster.outOfRangeSince = 0;
   learningMonster.state = 'idle';
