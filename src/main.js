@@ -217,6 +217,7 @@ const startGameButton = document.querySelector('#start-game');
 const heroNameInput = document.querySelector('#hero-name-input');
 const characterChoiceButtons = document.querySelectorAll('.character-choice');
 const heroNameEl = document.querySelector('#hero-name');
+const heroTitleEl = document.querySelector('#hero-title');
 const heroAvatarEl = document.querySelector('#hero-avatar');
 const menuButton = document.querySelector('#menu-button');
 const menuPanel = document.querySelector('#menu-panel');
@@ -226,6 +227,7 @@ const resetProfileButton = document.querySelector('#reset-profile-button');
 const closeMenuButton = document.querySelector('#close-menu-button');
 const letterArchiveButton = document.querySelector('#letter-archive-button');
 const wordArchiveButton = document.querySelector('#word-archive-button');
+const titleArchiveButton = document.querySelector('#title-archive-button');
 const itemStorageButton = document.querySelector('#item-storage-button');
 const archivePanel = document.querySelector('#archive-panel');
 const archiveTitleEl = document.querySelector('#archive-title');
@@ -267,12 +269,26 @@ const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHit
 const skillChargesEl = document.querySelector('#skill-charges-0');
 const inventory = { mpPotion: 0, combatPotion: 0 };
 const archiveState = { collectedSyllables: [], completedWords: {} };
+const titleState = { earned: [], equippedId: null };
+const DEFAULT_TITLE_NAMES = {
+  사과: '사과 탐험가',
+  나비: '나비 관찰자',
+  다리: '튼튼한 다리 탐험가'
+};
 
 function loadArchiveState() {
   try {
     const saved = JSON.parse(localStorage.getItem('letter-kingdom-archive') || '{}');
     archiveState.collectedSyllables = Array.isArray(saved.collectedSyllables) ? [...new Set(saved.collectedSyllables)] : [];
     archiveState.completedWords = saved.completedWords && typeof saved.completedWords === 'object' ? saved.completedWords : {};
+    titleState.earned = Array.isArray(saved.titles)
+      ? saved.titles.filter((title) => title && title.id && title.word && title.name).map((title, index) => ({
+        id: String(title.id), name: String(title.name), word: String(title.word),
+        earnedAt: String(title.earnedAt || ''), order: Number(title.order) || index + 1
+      }))
+      : [];
+    const savedEquippedId = saved.equippedTitleId ? String(saved.equippedTitleId) : null;
+    titleState.equippedId = titleState.earned.some((title) => title.id === savedEquippedId) ? savedEquippedId : null;
     inventory.mpPotion = Math.max(0, Number(saved.mpPotion || 0));
     inventory.combatPotion = Math.max(0, Number(saved.combatPotion || 0));
   } catch (error) { /* localStorage may be unavailable */ }
@@ -283,6 +299,8 @@ function persistArchiveState() {
     localStorage.setItem('letter-kingdom-archive', JSON.stringify({
       collectedSyllables: archiveState.collectedSyllables,
       completedWords: archiveState.completedWords,
+      titles: titleState.earned,
+      equippedTitleId: titleState.equippedId,
       mpPotion: inventory.mpPotion,
       combatPotion: inventory.combatPotion
     }));
@@ -290,6 +308,52 @@ function persistArchiveState() {
 }
 
 loadArchiveState();
+
+function titleNameForWord(word) {
+  return DEFAULT_TITLE_NAMES[word] || `${word} 탐험가`;
+}
+
+function titleForWord(word) {
+  return titleState.earned.find((title) => title.word === word) || null;
+}
+
+function awardTitleForWord(word) {
+  const existing = titleForWord(word);
+  if (existing) return { title: existing, isNew: false };
+  const title = {
+    id: `title-${encodeURIComponent(word)}`,
+    name: titleNameForWord(word),
+    word,
+    earnedAt: new Date().toLocaleDateString('ko-KR'),
+    order: titleState.earned.length + 1
+  };
+  titleState.earned.push(title);
+  persistArchiveState();
+  return { title, isNew: true };
+}
+
+function updateTitleHud() {
+  const equipped = titleState.earned.find((title) => title.id === titleState.equippedId);
+  heroTitleEl.textContent = equipped ? `✦ ${equipped.name}` : '';
+  heroTitleEl.hidden = !equipped;
+}
+
+function equipTitle(titleId) {
+  const title = titleState.earned.find((candidate) => candidate.id === titleId);
+  if (!title) return;
+  titleState.equippedId = title.id;
+  persistArchiveState();
+  updateTitleHud();
+  if (activeArchive === 'titles') renderArchive('titles');
+}
+
+function unequipTitle(titleId) {
+  if (titleState.equippedId !== titleId) return;
+  titleState.equippedId = null;
+  persistArchiveState();
+  updateTitleHud();
+  if (activeArchive === 'titles') renderArchive('titles');
+}
 
 function currentMPSettings() {
   return MP_SETTINGS[profile.character];
@@ -395,6 +459,7 @@ function updateSkillHud(now = performance.now()) {
 function applyProfileToHud() {
   const preset = CHARACTER_PRESETS[profile.character];
   heroNameEl.textContent = profile.name;
+  updateTitleHud();
   heroAvatarEl.textContent = preset.avatar;
   heroAvatarEl.style.background = preset.body;
   updateSkillHud();
@@ -448,7 +513,7 @@ function renderArchive(kind) {
   activeArchive = kind;
   archivePanel.hidden = false;
   closeMenu();
-  archiveTitleEl.textContent = kind === 'letters' ? '글자 보관함' : kind === 'words' ? '단어 보관함' : '아이템 창고';
+  archiveTitleEl.textContent = kind === 'letters' ? '글자 보관함' : kind === 'words' ? '단어 창고' : kind === 'titles' ? '칭호 목록' : '아이템 창고';
   if (kind === 'letters') {
     const collected = collectedLetters.length ? collectedLetters.join(' + ') : '아직 없어요';
     const remaining = activeStage.syllables.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
@@ -457,9 +522,27 @@ function renderArchive(kind) {
     return;
   }
   if (kind === 'words') {
-    const word = activeStageWord();
-    const completed = archiveState.completedWords[word];
-    archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">🍎</div><div><strong>${word}</strong><small>구성: ${activeStage.syllables.join(' + ')}</small></div><span class="archive-status ${completed ? '' : 'is-locked'}">${completed ? `완성 ${completed}` : '잠김'}</span></div></div>`;
+    const wordEntries = new Map(teacherStages.filter((stage) => stage.displayWord && stage.syllables.length).map((stage) => [stage.displayWord, stage.syllables]));
+    Object.keys(archiveState.completedWords).forEach((word) => { if (!wordEntries.has(word)) wordEntries.set(word, splitHangulSyllables(word)); });
+    archiveContentEl.innerHTML = `<div class="archive-list">${[...wordEntries].map(([word, syllables]) => {
+      const completedAt = archiveState.completedWords[word];
+      const title = titleForWord(word);
+      return `<div class="archive-item word-archive-item"><div class="archive-icon">✦</div><div><strong>${escapeHtml(word)}</strong><small>음절: ${escapeHtml(syllables.join(' → '))}</small><small>칭호: ${escapeHtml(title?.name || titleNameForWord(word))}</small></div><span class="archive-status ${completedAt ? '' : 'is-locked'}">${completedAt ? `완성 · ${escapeHtml(completedAt)}` : '잠겨 있어요'}</span></div>`;
+    }).join('') || '<p class="archive-empty">아직 준비된 단어가 없어요.</p>'}</div>`;
+    return;
+  }
+  if (kind === 'titles') {
+    const titleWords = teacherStages.filter((stage) => stage.displayWord && stage.syllables.length).map((stage) => stage.displayWord);
+    const allTitles = [...new Map([...titleWords.map((word) => ({ id: `title-${encodeURIComponent(word)}`, name: titleNameForWord(word), word })), ...titleState.earned].map((title) => [title.id, title])).values()];
+    archiveContentEl.innerHTML = `<div class="title-archive-list">${allTitles.map((title) => {
+      const earned = titleState.earned.some((candidate) => candidate.id === title.id);
+      const equipped = titleState.equippedId === title.id;
+      const action = earned ? equipped
+        ? `<span class="title-equipped-label">현재 장착</span><button class="title-action is-equipped" data-title-action="unequip" data-title-id="${escapeHtml(title.id)}">해제</button>`
+        : `<button class="title-action" data-title-action="equip" data-title-id="${escapeHtml(title.id)}">장착</button>`
+        : '<span class="title-locked-label">잠겨 있어요</span>';
+      return `<article class="title-archive-item ${earned ? 'is-earned' : 'is-locked'} ${equipped ? 'is-equipped' : ''}"><div class="title-archive-icon">${earned ? '✦' : '🔒'}</div><div class="title-archive-copy"><strong>${escapeHtml(title.name)}</strong><small>연결된 단어: ${escapeHtml(title.word)}</small><small>${earned ? `획득 ${escapeHtml(title.earnedAt)} · ${title.order}번째` : '잠겨 있어요'}</small></div><div class="title-archive-action">${action}</div></article>`;
+    }).join('') || '<p class="archive-empty">아직 획득할 칭호가 없어요.</p>'}</div>`;
     return;
   }
   archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">💧</div><div><strong>MP 회복 물약</strong><small>MP 1 회복</small></div><span class="storage-count">${inventory.mpPotion}개</span><button class="storage-use" data-use-item="mpPotion" ${inventory.mpPotion <= 0 || mp.current >= currentMPSettings().max ? 'disabled' : ''}>사용</button></div><div class="archive-item"><div class="archive-icon">♥</div><div><strong>전투 체력 회복 물약</strong><small>전투 체력 1칸 회복</small></div><span class="storage-count">${inventory.combatPotion}개</span><button class="storage-use" data-use-item="combatPotion" ${inventory.combatPotion <= 0 || combat.current >= combat.max ? 'disabled' : ''}>사용</button></div></div>`;
@@ -513,6 +596,8 @@ function resetProfile() {
   profile.character = 'swordsman';
   archiveState.collectedSyllables = [];
   archiveState.completedWords = {};
+  titleState.earned = [];
+  titleState.equippedId = null;
   inventory.mpPotion = 0;
   inventory.combatPotion = 0;
   persistArchiveState();
@@ -725,11 +810,19 @@ resetProfileButton.addEventListener('click', resetProfile);
 closeMenuButton.addEventListener('click', closeMenu);
 letterArchiveButton.addEventListener('click', () => renderArchive('letters'));
 wordArchiveButton.addEventListener('click', () => renderArchive('words'));
+titleArchiveButton.addEventListener('click', () => renderArchive('titles'));
 itemStorageButton.addEventListener('click', () => renderArchive('items'));
 archiveCloseButton.addEventListener('click', closeArchive);
 archiveContentEl.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-use-item]');
-  if (button) useStoredItem(button.dataset.useItem);
+  const itemButton = event.target.closest('[data-use-item]');
+  if (itemButton) {
+    useStoredItem(itemButton.dataset.useItem);
+    return;
+  }
+  const titleButton = event.target.closest('[data-title-action]');
+  if (!titleButton) return;
+  if (titleButton.dataset.titleAction === 'equip') equipTitle(titleButton.dataset.titleId);
+  else unequipTitle(titleButton.dataset.titleId);
 });
 welcomeNextButton.addEventListener('click', showSetupStep);
 characterChoiceButtons.forEach((button) => button.addEventListener('click', () => {
@@ -1012,7 +1105,10 @@ function playSkillSound() {
 
 function completeWord() {
   challenge.status = 'complete';
-  archiveState.completedWords[activeStageWord()] = new Date().toLocaleDateString('ko-KR');
+  const completedWord = activeStageWord();
+  const completedAt = archiveState.completedWords[completedWord] || new Date().toLocaleDateString('ko-KR');
+  archiveState.completedWords[completedWord] = completedAt;
+  const titleReward = awardTitleForWord(completedWord);
   const savedStage = teacherStages.find((stage) => stage.id === activeStage.id);
   if (savedStage) {
     savedStage.completed = true;
@@ -1022,7 +1118,9 @@ function completeWord() {
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
-  showNotice(`${activeStageWord()} 완성! 문이 열렸어요.`, 3000);
+  showNotice(titleReward.isNew
+    ? `${completedWord} 단어를 완성했어요!\n새 칭호를 획득했어요: ${titleReward.title.name}`
+    : `${completedWord} 단어를 완성했어요!\n이미 획득한 칭호가 있어요: ${titleReward.title.name}`, 3200);
   playSuccessSound();
 }
 
