@@ -32,11 +32,14 @@ const staticRects = [
   ...houseCollisionRects(430, 760)
 ];
 
-// The visible stream is a curved ribbon. The main path crossing near y=800 is its bridge route.
+// Sampled points follow the same two Bézier curves used by the visible river.
 const riverCenterline = [
-  [1830, -50], [1810, 350], [1900, 610], [1810, 920], [1730, 1160], [1840, 1430], [1780, 1700]
+  [1830, -50], [1818, 135], [1819, 300], [1835, 465], [1862, 620], [1883, 770], [1810, 920],
+  [1784, 1055], [1758, 1190], [1753, 1325], [1781, 1460], [1810, 1590], [1780, 1700]
 ];
-const bridgePassage = { x: 1760, y: 748, w: 150, h: 112 };
+const RIVER_WATER_HALF_WIDTH = 22;
+// This is the horizontal path crossing over the stream; only this rectangle bypasses river collision.
+const bridgePassage = { x: 1752, y: 730, w: 170, h: 145 };
 const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
@@ -134,11 +137,12 @@ function distanceToSegment(px, py, ax, ay, bx, by) {
 }
 
 function isBlockedByRiver(x, y) {
-  if (circleIntersectsRect(x, y, player.radius, bridgePassage)) return false;
-  const riverCollisionRadius = 22 + player.radius - 4;
+  const footY = y + player.footOffsetY;
+  if (circleIntersectsRect(x, footY, player.radius, bridgePassage)) return false;
+  const riverCollisionRadius = RIVER_WATER_HALF_WIDTH + player.radius;
   return riverCenterline.slice(0, -1).some(([ax, ay], index) => {
     const [bx, by] = riverCenterline[index + 1];
-    return distanceToSegment(x, y, ax, ay, bx, by) <= riverCollisionRadius;
+    return distanceToSegment(x, footY, ax, ay, bx, by) <= riverCollisionRadius;
   });
 }
 
@@ -156,6 +160,19 @@ function canMoveTo(x, y) {
 function drawCollisionDebug() {
   if (!DEBUG_COLLISIONS) return;
   ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(riverCenterline[0][0], riverCenterline[0][1]);
+  riverCenterline.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
+  ctx.strokeStyle = 'rgba(232, 76, 76, .28)';
+  ctx.lineWidth = (RIVER_WATER_HALF_WIDTH + player.radius) * 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(69, 196, 108, .34)';
+  ctx.strokeStyle = 'rgba(31, 133, 69, .9)';
+  ctx.lineWidth = 2;
+  ctx.fillRect(bridgePassage.x, bridgePassage.y, bridgePassage.w, bridgePassage.h);
+  ctx.strokeRect(bridgePassage.x, bridgePassage.y, bridgePassage.w, bridgePassage.h);
   staticRects.filter((rect) => rect.name.startsWith('house')).forEach((rect) => {
     ctx.fillStyle = 'rgba(232, 76, 76, .28)';
     ctx.strokeStyle = 'rgba(183, 35, 35, .8)';
