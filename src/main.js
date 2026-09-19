@@ -27,6 +27,9 @@ let lastTime = performance.now();
 
 const TARGET_WORD = ['사', '과'];
 const ARCHER_SKILL_DETECTION_RANGE = 250;
+const ARCHER_SKILL_COOLDOWN = 15000;
+const ARCHER_SKILL_EFFECT_DURATION = 5000;
+const ARCHER_SKILL_ARROW_DURATION = 1500;
 const SYLLABLE_COLORS = {
   fill: '#fff7c7',
   border: '#e6ac4f',
@@ -96,7 +99,7 @@ let monsterUnlockTimer;
 const skillButton = document.querySelector('#skill-button-0');
 const skillNameEl = document.querySelector('#skill-name-0');
 const skillCooldownEl = document.querySelector('#skill-cooldown-0');
-const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, hintUntil: 0 };
+const skillState = { cooldownUntil: 0, activeUntil: 0, shieldUntil: 0, shieldHitsRemaining: 0, shieldVisualOn: false, focusItemId: null, focusUntil: 0, arrowUntil: 0, hintUntil: 0 };
 
 function currentSkillName() {
   return { swordsman: '글자 방패', archer: '글자 찾기', mage: '낱말 힌트' }[profile.character];
@@ -116,12 +119,28 @@ function resetSkillState() {
   skillState.shieldVisualOn = false;
   skillState.focusItemId = null;
   skillState.focusUntil = 0;
+  skillState.arrowUntil = 0;
   skillState.hintUntil = 0;
   hintOverlay.hidden = true;
   updateSkillHud();
 }
 
+function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
+  if (profile.character !== 'archer' || !skillState.focusItemId) return;
+  const target = letterItems.find((item) => item.id === skillState.focusItemId && !item.collected);
+  const distance = target
+    ? Math.hypot(player.x - target.x, player.y + player.footOffsetY - target.y)
+    : Infinity;
+  if (!target || now >= skillState.focusUntil || distance > ARCHER_SKILL_DETECTION_RANGE) {
+    skillState.focusItemId = null;
+    skillState.focusUntil = 0;
+    skillState.arrowUntil = 0;
+    skillState.activeUntil = Math.min(skillState.activeUntil, now);
+  }
+}
+
 function updateSkillHud(now = performance.now()) {
+  clearArcherSkillFocusIfOutOfRange(now);
   const ready = gameStarted && energy.current > 0 && mp.current > 0 && !automaticRest.active && now >= skillState.cooldownUntil;
   const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
   skillNameEl.textContent = currentSkillName();
@@ -374,17 +393,23 @@ function useLearningSkill() {
     const target = letterItems.find((item) => !item.collected && item.character === TARGET_WORD[collectedLetters.length]);
     const footY = player.y + player.footOffsetY;
     const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
+    mp.current = Math.max(0, mp.current - 1);
+    mp.recoveryElapsed = 0;
+    skillState.cooldownUntil = now + ARCHER_SKILL_COOLDOWN;
+    skillState.focusItemId = null;
+    skillState.focusUntil = 0;
+    skillState.arrowUntil = 0;
+    skillState.activeUntil = now;
+    updateMPHud(); updateSkillHud(now);
     if (!target || distance > ARCHER_SKILL_DETECTION_RANGE) {
-      showNotice('조금 더 가까이 가면 글자를 찾을 수 있어요.', 2200);
+      showNotice('글자 감지에 실패했습니다.', 2200);
       return;
     }
     skillState.focusItemId = target.id;
-    skillState.focusUntil = now + 5000;
-    mp.current = Math.max(0, mp.current - 1);
-    mp.recoveryElapsed = 0;
-    skillState.cooldownUntil = now + 10000;
-    skillState.activeUntil = now + 5000;
-    updateMPHud(); updateSkillHud(now);
+    skillState.focusUntil = now + ARCHER_SKILL_EFFECT_DURATION;
+    skillState.arrowUntil = now + ARCHER_SKILL_ARROW_DURATION;
+    skillState.activeUntil = skillState.focusUntil;
+    updateSkillHud(now);
     showNotice('글자 찾기가 켜졌어요!', 1500);
     playSkillSound();
     return;
@@ -847,10 +872,23 @@ function drawLetterItem(item) {
     ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
   }
   if (isSkillFocused) {
+    const shimmer = 0.22 + Math.sin(now / 110) * 0.08;
+    const pillar = ctx.createLinearGradient(0, -170, 0, 8);
+    pillar.addColorStop(0, 'rgba(255, 239, 133, 0)');
+    pillar.addColorStop(.5, `rgba(255, 224, 91, ${shimmer})`);
+    pillar.addColorStop(1, 'rgba(255, 239, 133, 0)');
+    ctx.fillStyle = pillar;
+    ctx.fillRect(-24, -170, 48, 178);
     ctx.fillStyle = '#efb44f';
     ctx.font = 'bold 17px Jua, "Apple SD Gothic Neo", sans-serif';
     ctx.textAlign = 'center'; ctx.fillText('여기예요!', 0, -52 - Math.sin(now / 170) * 5);
     ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(-7, -45); ctx.lineTo(7, -45); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff1a2';
+    for (let index = 0; index < 8; index += 1) {
+      const angle = index * Math.PI / 4 + now / 500;
+      const radius = 34 + (index % 2) * 10 + Math.sin(now / 140 + index) * 4;
+      ctx.beginPath(); ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius - 10, 3, 0, Math.PI * 2); ctx.fill();
+    }
   }
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
@@ -1085,6 +1123,7 @@ function update(delta) {
 function roundedRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
 function drawWorld() {
   const w = shell.clientWidth; const h = shell.clientHeight;
+  clearArcherSkillFocusIfOutOfRange(performance.now());
   ctx.clearRect(0, 0, w, h);
   ctx.save(); ctx.translate(-camera.x, -camera.y);
   ctx.fillStyle = '#bde6b7'; ctx.fillRect(0, 0, WORLD.width, WORLD.height);
@@ -1115,7 +1154,9 @@ function drawWorld() {
 }
 
 function drawArcherSkillOverlay() {
-  if (profile.character !== 'archer' || performance.now() >= skillState.focusUntil || !skillState.focusItemId) return;
+  const now = performance.now();
+  clearArcherSkillFocusIfOutOfRange(now);
+  if (profile.character !== 'archer' || now >= skillState.arrowUntil || !skillState.focusItemId) return;
   const target = letterItems.find((item) => item.id === skillState.focusItemId && !item.collected);
   if (!target) return;
   const w = shell.clientWidth; const h = shell.clientHeight;
