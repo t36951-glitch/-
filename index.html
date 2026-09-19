@@ -69,17 +69,24 @@
       <section id="teacher-panel" class="teacher-panel" aria-label="교사용 설정" hidden>
         <div class="teacher-card">
           <div class="teacher-header"><div><p class="teacher-kicker">교사용 설정</p><h2>스테이지를 준비해요</h2></div><button id="teacher-close" class="hint-close" type="button">닫기</button></div>
-          <div class="teacher-form">
-            <label>스테이지 번호<input id="teacher-stage-number" type="number" min="1" max="99" value="1"></label>
-            <label>목표 단어<input id="teacher-word" type="text" maxlength="12" value="사과" placeholder="예: 나비"></label>
-            <label>학습 방식<select id="teacher-learning-mode"><option value="syllable">음절 모드</option><option value="jamo">자음·모음 모드</option></select></label>
-            <label>힌트 문장<textarea id="teacher-hint" rows="2">빨갛고 맛있는 과일이에요.</textarea></label>
-            <label class="teacher-check"><input id="teacher-locked" type="checkbox"> 스테이지 잠금</label>
-            <label class="teacher-check"><input id="teacher-active" type="checkbox" checked> 현재 스테이지 활성화</label>
+          <div id="teacher-list-view" class="teacher-list-view">
+            <div class="teacher-list-toolbar"><h3>저장된 스테이지 1~10</h3><button id="teacher-new-list" class="menu-action" type="button">새 스테이지</button></div>
+            <div id="teacher-stage-list" class="teacher-stage-list"></div>
           </div>
-          <p id="teacher-feedback" class="teacher-feedback" role="status"></p>
-          <div class="teacher-actions"><button id="teacher-new" class="menu-action" type="button">새 스테이지</button><button id="teacher-save" class="menu-action" type="button">스테이지 저장</button><button id="teacher-start" class="menu-action menu-action-close" type="button">게임 시작</button></div>
-          <h3>저장된 스테이지</h3><div id="teacher-stage-list" class="teacher-stage-list"></div>
+          <div id="teacher-editor-view" class="teacher-editor-view" hidden>
+            <div class="teacher-form">
+              <label>스테이지 번호<input id="teacher-stage-number" type="number" min="1" max="10" value="1" readonly></label>
+              <label>목표 단어<input id="teacher-word" type="text" maxlength="12" value="사과" placeholder="예: 나비"></label>
+              <label>학습 방식<select id="teacher-learning-mode"><option value="syllable">음절 모드</option><option value="jamo">자음·모음 모드</option></select></label>
+              <label>힌트 문장<textarea id="teacher-hint" rows="3">빨갛고 맛있는 과일이에요.</textarea></label>
+              <label>스테이지 상태<select id="teacher-status"><option value="locked">잠김</option><option value="playable">플레이 가능</option><option value="current">현재 스테이지</option></select></label>
+              <div class="teacher-placeholder"><strong>힌트 이미지</strong><small>기존 이미지 영역을 연결할 자리입니다.</small></div>
+              <div class="teacher-placeholder"><strong>음성 안내</strong><small>기존 음성 구조를 연결할 자리입니다.</small></div>
+              <div class="teacher-preview" id="teacher-syllable-preview"></div>
+            </div>
+            <p id="teacher-feedback" class="teacher-feedback" role="status"></p>
+            <div class="teacher-actions"><button id="teacher-new" class="menu-action" type="button">새 스테이지</button><button id="teacher-save" class="menu-action" type="button">저장</button><button id="teacher-start" class="menu-action menu-action-close" type="button">저장 후 게임 시작</button><button id="teacher-cancel" class="menu-action menu-action-soft" type="button">취소</button></div>
+          </div>
         </div>
       </section>
       <div class="location-pill"><span class="dot"></span> 반짝숲 마을</div>

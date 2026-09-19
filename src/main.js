@@ -37,19 +37,26 @@ function splitHangulSyllables(value) {
 }
 
 function normalizeStage(raw = {}) {
-  const syllables = splitHangulSyllables(raw.word || '').slice(0, 6);
-  const safeSyllables = syllables.length ? syllables : [...DEFAULT_STAGE.syllables];
+  const displayWord = String(raw.displayWord ?? raw.word ?? '').trim();
+  const syllables = Array.isArray(raw.syllables) && raw.syllables.length
+    ? raw.syllables.filter((character) => /^[가-힣]$/.test(character)).slice(0, 6)
+    : splitHangulSyllables(displayWord).slice(0, 6);
+  const isDefault = raw.id === DEFAULT_STAGE.id || raw.protected === true;
+  const safeWord = displayWord || (isDefault ? DEFAULT_STAGE.word : '');
+  const safeSyllables = syllables.length ? syllables : (isDefault ? [...DEFAULT_STAGE.syllables] : []);
+  const hint = raw.hint === '' ? DEFAULT_STAGE.hint : String(raw.hint ?? DEFAULT_STAGE.hint);
   return {
     ...DEFAULT_STAGE,
     ...raw,
     id: raw.id || `stage-${Number(raw.stageNumber) || 1}`,
     stageNumber: Math.max(1, Number(raw.stageNumber) || 1),
-    word: safeSyllables.join(''),
+    word: safeWord,
+    displayWord: safeWord,
     syllables: safeSyllables,
     learningMode: raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
-    hint: String(raw.hint || DEFAULT_STAGE.hint).trim() || DEFAULT_STAGE.hint,
+    hint: hint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
-    active: raw.active !== false,
+    active: raw.active === true,
     protected: raw.protected === true
   };
 }
@@ -58,8 +65,22 @@ function loadTeacherStages() {
   try {
     const saved = JSON.parse(localStorage.getItem(STAGE_STORAGE_KEY) || 'null');
     const stages = Array.isArray(saved) ? saved.map(normalizeStage) : [DEFAULT_STAGE];
-    if (!stages.some((stage) => stage.id === DEFAULT_STAGE.id)) stages.unshift(DEFAULT_STAGE);
-    return stages;
+    if (!stages.some((stage) => stage.id === DEFAULT_STAGE.id)) stages.unshift(normalizeStage(DEFAULT_STAGE));
+    for (let number = 1; number <= 10; number += 1) {
+      if (!stages.some((stage) => stage.stageNumber === number)) {
+        stages.push(normalizeStage({ id: `stage-${number}`, stageNumber: number, word: '', displayWord: '', syllables: [], hint: '', locked: number !== 1, active: number === 1, protected: number === 1 }));
+      }
+    }
+    let activeFound = false;
+    stages.forEach((stage) => {
+      if (stage.active && !stage.locked && !activeFound) activeFound = true;
+      else if (stage.active) stage.active = false;
+    });
+    if (!activeFound) {
+      const fallback = stages.find((stage) => stage.id === DEFAULT_STAGE.id) || stages[0];
+      if (fallback) { fallback.active = true; fallback.locked = false; }
+    }
+    return stages.sort((a, b) => a.stageNumber - b.stageNumber);
   } catch (error) { return [DEFAULT_STAGE]; }
 }
 
@@ -206,16 +227,20 @@ const archiveCloseButton = document.querySelector('#archive-close');
 const teacherSettingsButton = document.querySelector('#teacher-settings-button');
 const teacherPanel = document.querySelector('#teacher-panel');
 const teacherCloseButton = document.querySelector('#teacher-close');
+const teacherListView = document.querySelector('#teacher-list-view');
+const teacherEditorView = document.querySelector('#teacher-editor-view');
+const teacherNewListButton = document.querySelector('#teacher-new-list');
 const teacherStageNumber = document.querySelector('#teacher-stage-number');
 const teacherWordInput = document.querySelector('#teacher-word');
 const teacherLearningMode = document.querySelector('#teacher-learning-mode');
 const teacherHintInput = document.querySelector('#teacher-hint');
-const teacherLockedInput = document.querySelector('#teacher-locked');
-const teacherActiveInput = document.querySelector('#teacher-active');
+const teacherStatusInput = document.querySelector('#teacher-status');
+const teacherSyllablePreview = document.querySelector('#teacher-syllable-preview');
 const teacherFeedback = document.querySelector('#teacher-feedback');
 const teacherNewButton = document.querySelector('#teacher-new');
 const teacherSaveButton = document.querySelector('#teacher-save');
 const teacherStartButton = document.querySelector('#teacher-start');
+const teacherCancelButton = document.querySelector('#teacher-cancel');
 const teacherStageList = document.querySelector('#teacher-stage-list');
 let selectedCharacter = profile.character;
 let letterNoticeTimer;
@@ -293,7 +318,7 @@ function currentSkillName() {
 
 function currentSkillHintMessage() {
   const next = activeStage.syllables[collectedLetters.length];
-  if (!next) return `${activeStage.syllables.join('')} 글자를 모두 모았어요!`;
+  if (!next) return `${activeStageWord()} 글자를 모두 모았어요!`;
   return collectedLetters.length === 0 ? `첫 번째 글자는 ${next}예요.` : `다음 글자는 ${next}예요.`;
 }
 
@@ -421,11 +446,11 @@ function renderArchive(kind) {
     const collected = collectedLetters.length ? collectedLetters.join(' + ') : '아직 없어요';
     const remaining = activeStage.syllables.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
     const progress = Math.round(collectedLetters.length / activeStage.syllables.length * 100);
-    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${activeStage.syllables.join('')}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${activeStage.syllables.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
+    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${activeStageWord()}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${activeStage.syllables.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
     return;
   }
   if (kind === 'words') {
-    const word = activeStage.syllables.join('');
+    const word = activeStageWord();
     const completed = archiveState.completedWords[word];
     archiveContentEl.innerHTML = `<div class="archive-list"><div class="archive-item"><div class="archive-icon">🍎</div><div><strong>${word}</strong><small>구성: ${activeStage.syllables.join(' + ')}</small></div><span class="archive-status ${completed ? '' : 'is-locked'}">${completed ? `완성 ${completed}` : '잠김'}</span></div></div>`;
     return;
@@ -511,26 +536,55 @@ function saveActiveStageId() {
   try { localStorage.setItem(ACTIVE_STAGE_STORAGE_KEY, activeStage.id); } catch (error) { /* localStorage may be unavailable */ }
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+}
+
+function updateTeacherPreview() {
+  const word = teacherWordInput.value.trim();
+  const syllables = splitHangulSyllables(word).slice(0, 6);
+  teacherSyllablePreview.innerHTML = `<strong>학습 미리보기</strong><div>목표 단어: ${escapeHtml(word || '입력 필요')}</div><div>수집 순서: ${syllables.length ? syllables.join(' → ') : '—'}</div><div>진행률: 0/${syllables.length}</div><div class="teacher-preview-hint">힌트: ${escapeHtml(teacherHintInput.value || DEFAULT_STAGE.hint)}</div>`;
+}
+
 function fillTeacherForm(stage) {
   const normalized = normalizeStage(stage);
   editingTeacherStageId = normalized.id;
   teacherStageNumber.value = normalized.stageNumber;
-  teacherWordInput.value = normalized.word;
+  teacherWordInput.value = normalized.displayWord || normalized.word;
   teacherLearningMode.value = normalized.learningMode;
   teacherHintInput.value = normalized.hint;
-  teacherLockedInput.checked = normalized.locked;
-  teacherActiveInput.checked = normalized.active;
+  teacherStatusInput.value = normalized.active ? 'current' : normalized.locked ? 'locked' : 'playable';
+  updateTeacherPreview();
+}
+
+function showTeacherList() {
+  teacherListView.hidden = false;
+  teacherEditorView.hidden = true;
+  renderTeacherStageList();
+}
+
+function showTeacherEditor(stage) {
+  fillTeacherForm(stage);
+  teacherListView.hidden = true;
+  teacherEditorView.hidden = false;
+}
+
+function stageStatusLabel(stage) {
+  if (!stage.word) return '내용 없음';
+  if (stage.active) return '현재 플레이 중';
+  if (stage.locked) return '잠김';
+  return '플레이 가능';
 }
 
 function renderTeacherStageList() {
-  teacherStageList.innerHTML = teacherStages.map((stage) => `<div class="teacher-stage-item"><div><strong>스테이지 ${stage.stageNumber} · ${stage.word}</strong><small>${stage.active ? '활성화됨' : '비활성'} · ${stage.locked ? '잠김' : '사용 가능'}</small></div><button data-teacher-load="${stage.id}" type="button">불러오기</button>${stage.protected ? '<span class="archive-status">기본</span>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}</div>`).join('');
+  const ordered = Array.from({ length: 10 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
+  teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => `<div class="teacher-stage-row"><strong>${stage.stageNumber}</strong><span>${escapeHtml(stage.displayWord || stage.word || '—')}</span><span class="teacher-hint-cell">${escapeHtml(stage.hint || '—')}</span><span>${stage.learningMode === 'jamo' ? '자음·모음 모드' : '음절 모드'}</span><span class="teacher-status-badge ${stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions"><button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}</span></div>`).join('')}</div>`;
 }
 
 function openTeacherSettings() {
   closeMenu();
   teacherPanel.hidden = false;
-  fillTeacherForm(activeStage);
-  renderTeacherStageList();
+  showTeacherList();
   teacherFeedback.textContent = '';
 }
 
@@ -539,34 +593,43 @@ function closeTeacherSettings() {
 }
 
 function saveTeacherStage() {
-  const rawWord = teacherWordInput.value.trim();
-  const syllables = splitHangulSyllables(rawWord || DEFAULT_STAGE.word);
-  if (syllables.length > 6) {
-    teacherFeedback.textContent = '목표 단어가 길어요. 앞의 6개 음절까지 사용합니다.';
-  } else if (!syllables.length) {
-    teacherFeedback.textContent = '단어가 비어 있어 기본 단어 사과를 사용합니다.';
-  } else {
-    teacherFeedback.textContent = `${syllables.join(' → ')} 음절이 생성되었어요.`;
+  const displayWord = teacherWordInput.value.trim();
+  if (!displayWord) {
+    teacherFeedback.textContent = '목표 단어를 입력해 주세요.';
+    return;
   }
+  const syllables = splitHangulSyllables(displayWord);
+  if (syllables.length > 6) teacherFeedback.textContent = '목표 단어가 길어요. 앞의 6개 음절까지 사용합니다.';
+  else if (!syllables.length) teacherFeedback.textContent = '한글 음절을 입력해 주세요.';
+  else teacherFeedback.textContent = `${syllables.slice(0, 6).join(' → ')} 음절이 생성되었어요.`;
   const id = editingTeacherStageId || `stage-${Date.now()}`;
+  const status = teacherStatusInput.value;
   const stage = normalizeStage({
     id,
     stageNumber: teacherStageNumber.value,
-    word: syllables.slice(0, 6).join(''),
+    displayWord: displayWord || DEFAULT_STAGE.word,
+    word: displayWord || DEFAULT_STAGE.word,
+    syllables: syllables.slice(0, 6),
     learningMode: teacherLearningMode.value,
     hint: teacherHintInput.value,
-    locked: teacherLockedInput.checked,
-    active: teacherActiveInput.checked,
+    locked: status === 'locked',
+    active: status === 'current',
     protected: id === DEFAULT_STAGE.id
   });
   const index = teacherStages.findIndex((item) => item.id === id);
   if (index >= 0) teacherStages[index] = stage;
   else teacherStages.push(stage);
   if (stage.active) teacherStages.forEach((item) => { if (item.id !== stage.id) item.active = false; });
+  if (!teacherStages.some((item) => item.active && !item.locked)) {
+    const fallback = teacherStages.find((item) => item.id === DEFAULT_STAGE.id) || teacherStages[0];
+    if (fallback) { fallback.active = true; fallback.locked = false; }
+  }
   persistTeacherStages();
   if (stage.active && !stage.locked) applyStage(stage);
+  teacherFeedback.textContent = `스테이지 ${stage.stageNumber}가 저장되었어요.`;
   renderTeacherStageList();
   fillTeacherForm(stage);
+  showTeacherList();
 }
 
 function applyStage(stage) {
@@ -578,7 +641,7 @@ function applyStage(stage) {
 }
 
 function applyStageUi() {
-  const word = activeStage.syllables.join('');
+  const word = activeStageWord();
   document.querySelector('#goal-word').textContent = word;
   document.querySelector('#hint-title').textContent = `${word} 힌트`;
   document.querySelector('#hint-description').textContent = activeStage.hint;
@@ -611,23 +674,29 @@ function startTeacherStage() {
 
 teacherSettingsButton.addEventListener('click', openTeacherSettings);
 teacherCloseButton.addEventListener('click', closeTeacherSettings);
-teacherNewButton.addEventListener('click', () => {
-  const nextNumber = Math.max(...teacherStages.map((stage) => stage.stageNumber), 0) + 1;
-  fillTeacherForm(normalizeStage({ id: `stage-${Date.now()}`, stageNumber: nextNumber, word: '', active: false, locked: false }));
+teacherNewListButton.addEventListener('click', () => {
+  const usedNumbers = new Set(teacherStages.map((stage) => stage.stageNumber));
+  const stageNumber = Array.from({ length: 10 }, (_, index) => index + 1).find((number) => !usedNumbers.has(number));
+  if (!stageNumber) return;
+  showTeacherEditor(normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: false, hint: '' }));
   teacherWordInput.value = '';
-  teacherHintInput.value = DEFAULT_STAGE.hint;
-  teacherActiveInput.checked = false;
-  teacherLockedInput.checked = false;
+  teacherHintInput.value = '';
+  teacherStatusInput.value = 'playable';
   teacherFeedback.textContent = '새 스테이지 내용을 입력해 주세요.';
+  updateTeacherPreview();
 });
+teacherNewButton.addEventListener('click', () => teacherNewListButton.click());
 teacherSaveButton.addEventListener('click', saveTeacherStage);
 teacherStartButton.addEventListener('click', startTeacherStage);
+teacherCancelButton.addEventListener('click', showTeacherList);
+teacherWordInput.addEventListener('input', updateTeacherPreview);
+teacherHintInput.addEventListener('input', updateTeacherPreview);
 teacherStageList.addEventListener('click', (event) => {
   const loadButton = event.target.closest('[data-teacher-load]');
   const deleteButton = event.target.closest('[data-teacher-delete]');
   if (loadButton) {
     const stage = teacherStages.find((item) => item.id === loadButton.dataset.teacherLoad);
-    if (stage) fillTeacherForm(stage);
+    if (stage) showTeacherEditor(stage);
   }
   if (deleteButton) {
     const stage = teacherStages.find((item) => item.id === deleteButton.dataset.teacherDelete);
@@ -699,9 +768,13 @@ function updateEnergyHud() {
   updateSkillHud();
 }
 
+function activeStageWord() {
+  return activeStage.displayWord || activeStage.word || activeStage.syllables.join('');
+}
+
 function currentHintMessage() {
   const next = activeStage.syllables[collectedLetters.length];
-  if (!next) return `${activeStage.syllables.join('')} 글자를 모두 모았어요!`;
+  if (!next) return `${activeStageWord()} 글자를 모두 모았어요!`;
   return collectedLetters.length === 0 ? `첫 번째 글자는 ‘${next}’예요.` : `다음 글자는 ‘${next}’예요.`;
 }
 
@@ -709,7 +782,7 @@ function updateCollectionHud() {
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
   letterCountEl.textContent = `${collectedLetters.length}/${activeStage.syllables.length}`;
   nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (activeStage.syllables[collectedLetters.length] || '없음');
-  wordStateEl.textContent = challenge.status === 'complete' ? `${activeStage.syllables.join('')} 완성!` : '글자를 모아 보세요!';
+  wordStateEl.textContent = challenge.status === 'complete' ? `${activeStageWord()} 완성!` : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
   wordStateEl.classList.remove('is-wrong');
   updateEnergyHud();
@@ -740,7 +813,7 @@ function checkTreasureChest() {
   const footY = player.y + player.footOffsetY;
   if (Math.hypot(player.x - treasureChest.x, footY - treasureChest.y) > player.radius + 30) return;
   treasureChest.opened = true;
-  showNotice(`${activeStage.syllables.join('')} 힌트를 찾았어요!`, 1500);
+  showNotice(`${activeStageWord()} 힌트를 찾았어요!`, 1500);
   openHint();
 }
 
@@ -931,12 +1004,12 @@ function playSkillSound() {
 
 function completeWord() {
   challenge.status = 'complete';
-  archiveState.completedWords[activeStage.syllables.join('')] = new Date().toLocaleDateString('ko-KR');
+  archiveState.completedWords[activeStageWord()] = new Date().toLocaleDateString('ko-KR');
   persistArchiveState();
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.xCenter, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
-  showNotice(`${activeStage.syllables.join('')} 완성! 문이 열렸어요.`, 3000);
+  showNotice(`${activeStageWord()} 완성! 문이 열렸어요.`, 3000);
   playSuccessSound();
 }
 
@@ -1770,7 +1843,7 @@ function drawPickupEffects() {
     ctx.fillStyle = '#fff1a2';
     ctx.font = 'bold 30px Jua, "Apple SD Gothic Neo", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`${activeStage.syllables.join('')} 완성!`, successEffect.x, successEffect.y - 48 - progress * 28);
+    ctx.fillText(`${activeStageWord()} 완성!`, successEffect.x, successEffect.y - 48 - progress * 28);
     for (let i = 0; i < 8; i += 1) {
       const angle = i * Math.PI / 4 + progress;
       ctx.beginPath();
