@@ -27,6 +27,11 @@ let lastTime = performance.now();
 
 const TARGET_WORD = ['사', '과'];
 const ARCHER_SKILL_DETECTION_RANGE = 250;
+const SYLLABLE_COLORS = {
+  fill: '#fff7c7',
+  border: '#e6ac4f',
+  text: '#d9795f'
+};
 const letterItems = [
   { id: 'sa', character: '사', x: 720, y: 430, collected: false, wobble: 0 },
   { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, wobble: 0 }
@@ -329,9 +334,20 @@ function answerMonster(answer) {
   }
   const selectedButton = [...monsterChoiceButtons].find((button) => button.dataset.answer === answer);
   monsterAnswerCooldownUntil = now + 1000;
+  if (selectedButton) selectedButton.classList.add('is-wrong');
+  if (consumeLearningShield()) {
+    monsterFeedback.textContent = '방패가 오답 피해를 막아줬어요. 다시 생각해 볼까요?';
+    setMonsterChoicesDisabled(true);
+    window.clearTimeout(monsterUnlockTimer);
+    monsterUnlockTimer = window.setTimeout(() => {
+      monsterAnswerCooldownUntil = 0;
+      setMonsterChoicesDisabled(false);
+      monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
+    }, 1000);
+    return;
+  }
   energy.current = Math.max(0, energy.current - 1);
   updateEnergyHud();
-  if (selectedButton) selectedButton.classList.add('is-wrong');
   monsterFeedback.textContent = '괜찮아요. 다시 생각해 볼까요?';
   setMonsterChoicesDisabled(true);
   if (energy.current === 0) {
@@ -839,11 +855,11 @@ function drawLetterItem(item) {
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(0, 29, 31, 9, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff7c7';
-  ctx.strokeStyle = '#e6ac4f';
+  ctx.fillStyle = SYLLABLE_COLORS.fill;
+  ctx.strokeStyle = SYLLABLE_COLORS.border;
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = isNeeded ? '#d9795f' : '#6479b2';
+  ctx.fillStyle = SYLLABLE_COLORS.text;
   ctx.font = 'bold 34px Jua, "Apple SD Gothic Neo", sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(item.character, 0, 2);
