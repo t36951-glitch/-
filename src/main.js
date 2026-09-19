@@ -28,9 +28,25 @@ let lastTime = performance.now();
 const STAGE_STORAGE_KEY = 'letter-kingdom-teacher-stages';
 const ACTIVE_STAGE_STORAGE_KEY = 'letter-kingdom-active-stage';
 const DEFAULT_STAGE = {
-  id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable',
+  id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
   hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
 };
+const DEFAULT_CONSONANT_STAGES = [
+  { stageNumber: 1, consonant: 'ㄱ', word: '가방', syllables: ['가', '방'], hint: '물건을 넣고 다니는 것이에요.' },
+  { stageNumber: 2, consonant: 'ㄴ', word: '나비', syllables: ['나', '비'], hint: '날아다니는 예쁜 곤충이에요.' },
+  { stageNumber: 3, consonant: 'ㄷ', word: '다리', syllables: ['다', '리'], hint: '강이나 길을 건널 때 사용하는 곳이에요.' },
+  { stageNumber: 4, consonant: 'ㄹ', word: '라면', syllables: ['라', '면'], hint: '물을 넣고 끓여 먹는 음식이에요.' },
+  { stageNumber: 5, consonant: 'ㅁ', word: '모자', syllables: ['모', '자'], hint: '머리에 쓰는 것이에요.' },
+  { stageNumber: 6, consonant: 'ㅂ', word: '바나나', syllables: ['바', '나', '나'], hint: '길고 노란 과일이에요.' },
+  { stageNumber: 7, consonant: 'ㅅ', word: '사과', syllables: ['사', '과'], hint: '빨갛고 맛있는 과일이에요.' },
+  { stageNumber: 8, consonant: 'ㅇ', word: '오리', syllables: ['오', '리'], hint: '물에서 헤엄치는 새예요.' },
+  { stageNumber: 9, consonant: 'ㅈ', word: '자동차', syllables: ['자', '동', '차'], hint: '사람이나 물건을 태우고 달리는 것이에요.' },
+  { stageNumber: 10, consonant: 'ㅊ', word: '치마', syllables: ['치', '마'], hint: '허리에 입는 옷이에요.' },
+  { stageNumber: 11, consonant: 'ㅋ', word: '코끼리', syllables: ['코', '끼', '리'], hint: '코가 길고 큰 동물이에요.' },
+  { stageNumber: 12, consonant: 'ㅌ', word: '토끼', syllables: ['토', '끼'], hint: '귀가 길고 깡충깡충 뛰는 동물이에요.' },
+  { stageNumber: 13, consonant: 'ㅍ', word: '포도', syllables: ['포', '도'], hint: '작고 동그란 알이 모여 있는 과일이에요.' },
+  { stageNumber: 14, consonant: 'ㅎ', word: '하마', syllables: ['하', '마'], hint: '물가에 사는 몸집이 큰 동물이에요.' }
+];
 
 function splitHangulSyllables(value) {
   return Array.from(String(value || '').replace(/\s+/g, '')).filter((character) => /^[가-힣]$/.test(character));
@@ -54,6 +70,7 @@ function normalizeStage(raw = {}) {
     displayWord: safeWord,
     syllables: safeSyllables,
     learningMode: raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
+    consonant: String(raw.consonant || DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === Number(raw.stageNumber))?.consonant || (isDefault ? DEFAULT_STAGE.consonant : '')),
     hint: hint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
     active: raw.active === true,
@@ -64,11 +81,23 @@ function normalizeStage(raw = {}) {
 function loadTeacherStages() {
   try {
     const saved = JSON.parse(localStorage.getItem(STAGE_STORAGE_KEY) || 'null');
-    const stages = Array.isArray(saved) ? saved.map(normalizeStage) : [DEFAULT_STAGE];
+    const hasSavedStages = Array.isArray(saved);
+    const stages = hasSavedStages ? saved.map(normalizeStage) : DEFAULT_CONSONANT_STAGES.map((stage, index) => normalizeStage({
+      ...stage, id: `stage-${stage.stageNumber}`, active: index === 0, locked: false, protected: stage.stageNumber === 1
+    }));
     if (!stages.some((stage) => stage.id === DEFAULT_STAGE.id)) stages.unshift(normalizeStage(DEFAULT_STAGE));
-    for (let number = 1; number <= 10; number += 1) {
+    DEFAULT_CONSONANT_STAGES.forEach((defaultStage) => {
+      const existing = stages.find((stage) => stage.stageNumber === defaultStage.stageNumber);
+      if (existing && !existing.displayWord) {
+        Object.assign(existing, normalizeStage({ ...defaultStage, id: existing.id, active: false, locked: false, protected: existing.protected }));
+      }
+    });
+    for (let number = 1; number <= 14; number += 1) {
       if (!stages.some((stage) => stage.stageNumber === number)) {
-        stages.push(normalizeStage({ id: `stage-${number}`, stageNumber: number, word: '', displayWord: '', syllables: [], hint: '', locked: number !== 1, active: number === 1, protected: number === 1 }));
+        const defaultStage = DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === number);
+        stages.push(normalizeStage(defaultStage
+          ? { ...defaultStage, id: `stage-${number}`, locked: false, active: false, protected: number === 1 }
+          : { id: `stage-${number}`, stageNumber: number, word: '', displayWord: '', syllables: [], hint: '', locked: true, active: false }));
       }
     }
     let activeFound = false;
@@ -80,8 +109,12 @@ function loadTeacherStages() {
       const fallback = stages.find((stage) => stage.id === DEFAULT_STAGE.id) || stages[0];
       if (fallback) { fallback.active = true; fallback.locked = false; }
     }
-    return stages.sort((a, b) => a.stageNumber - b.stageNumber);
-  } catch (error) { return [DEFAULT_STAGE]; }
+    const ordered = stages.sort((a, b) => a.stageNumber - b.stageNumber);
+    if (!hasSavedStages) {
+      try { localStorage.setItem(STAGE_STORAGE_KEY, JSON.stringify(ordered)); } catch (error) { /* localStorage may be unavailable */ }
+    }
+    return ordered;
+  } catch (error) { return DEFAULT_CONSONANT_STAGES.map((stage, index) => normalizeStage({ ...stage, id: `stage-${stage.stageNumber}`, active: index === 0, locked: false })); }
 }
 
 const teacherStages = loadTeacherStages();
@@ -185,6 +218,7 @@ const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
 const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
+const stageConsonantEl = document.querySelector('#stage-consonant');
 const energyPipsEl = document.querySelector('#energy-pips');
 const energyCountEl = document.querySelector('#energy-count');
 const combatHeartsEl = document.querySelector('#combat-hearts');
@@ -208,6 +242,8 @@ const restartPrompt = document.querySelector('#restart-prompt');
 const restartYesButton = document.querySelector('#restart-yes');
 const restartNoButton = document.querySelector('#restart-no');
 const successMessageEl = document.querySelector('#success-message');
+const successRestartButton = document.querySelector('#success-restart-button');
+const successContinueButton = document.querySelector('#success-continue-button');
 const nextStagePrompt = document.querySelector('#next-stage-prompt');
 const nextStageTitle = document.querySelector('#next-stage-title');
 const nextStageMessage = document.querySelector('#next-stage-message');
@@ -249,6 +285,7 @@ const teacherCloseButton = document.querySelector('#teacher-close');
 const teacherListView = document.querySelector('#teacher-list-view');
 const teacherEditorView = document.querySelector('#teacher-editor-view');
 const teacherNewListButton = document.querySelector('#teacher-new-list');
+const teacherApplyDefaultsButton = document.querySelector('#teacher-apply-defaults');
 const teacherStageNumber = document.querySelector('#teacher-stage-number');
 const teacherWordInput = document.querySelector('#teacher-word');
 const teacherLearningMode = document.querySelector('#teacher-learning-mode');
@@ -706,8 +743,32 @@ function stageStatusLabel(stage) {
 }
 
 function renderTeacherStageList() {
-  const ordered = Array.from({ length: 10 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
+  const ordered = Array.from({ length: 14 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
   teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => `<div class="teacher-stage-row"><strong>${stage.stageNumber}</strong><span>${escapeHtml(stage.displayWord || stage.word || '—')}</span><span class="teacher-hint-cell">${escapeHtml(stage.hint || '—')}</span><span>${stage.learningMode === 'jamo' ? '자음·모음 모드' : '음절 모드'}</span><span class="teacher-status-badge ${stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions"><button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}</span></div>`).join('')}</div>`;
+}
+
+function applyDefaultConsonantStages() {
+  if (!window.confirm('14개 기본 학습 콘텐츠를 적용할까요?\n기존에 저장된 내용은 변경되지 않습니다.')) return;
+  DEFAULT_CONSONANT_STAGES.forEach((defaultStage, index) => {
+    const existing = teacherStages.find((stage) => stage.stageNumber === defaultStage.stageNumber);
+    if (existing?.displayWord) return;
+    const replacement = normalizeStage({
+      ...defaultStage,
+      id: existing?.id || `stage-${defaultStage.stageNumber}`,
+      active: existing?.active || index === 0,
+      locked: existing?.locked === true ? true : false,
+      protected: existing?.protected || defaultStage.stageNumber === 1
+    });
+    if (existing) Object.assign(existing, replacement);
+    else teacherStages.push(replacement);
+  });
+  if (!teacherStages.some((stage) => stage.active && !stage.locked)) {
+    const first = teacherStages.find((stage) => stage.stageNumber === 1);
+    if (first) { first.active = true; first.locked = false; }
+  }
+  persistTeacherStages();
+  renderTeacherStageList();
+  teacherFeedback.textContent = '비어 있던 스테이지에 기본 자음 학습 콘텐츠를 적용했어요.';
 }
 
 function openTeacherSettings() {
@@ -771,12 +832,15 @@ function applyStage(stage, { regenerateLayout = true } = {}) {
 
 function applyStageUi() {
   const word = activeStageWord();
+  stageConsonantEl.textContent = activeStage.consonant || '—';
   document.querySelector('#goal-word').textContent = word;
   document.querySelector('#hint-title').textContent = `${word} 힌트`;
   document.querySelector('#hint-description').textContent = activeStage.hint;
   document.querySelector('#hint-goal-word').textContent = word;
   document.querySelector('#success-title').textContent = `${word} 낱말 미션 성공!`;
   successMessageEl.textContent = '글자를 모아 문을 통과했어요.';
+  successRestartButton.hidden = true;
+  successContinueButton.hidden = true;
   document.querySelector('#monster-question').textContent = `${word}의 첫 번째 음절은 무엇일까요?`;
   const choices = [activeStage.syllables[0], activeStage.syllables[1] || '나', activeStage.syllables[2] || '다'];
   monsterChoiceButtons.forEach((button, index) => {
@@ -804,9 +868,10 @@ function startTeacherStage() {
 
 teacherSettingsButton.addEventListener('click', openTeacherSettings);
 teacherCloseButton.addEventListener('click', closeTeacherSettings);
+teacherApplyDefaultsButton.addEventListener('click', applyDefaultConsonantStages);
 teacherNewListButton.addEventListener('click', () => {
   const usedNumbers = new Set(teacherStages.map((stage) => stage.stageNumber));
-  const stageNumber = Array.from({ length: 10 }, (_, index) => index + 1).find((number) => !usedNumbers.has(number));
+  const stageNumber = Array.from({ length: 14 }, (_, index) => index + 1).find((number) => !usedNumbers.has(number));
   if (!stageNumber) return;
   showTeacherEditor(normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: false, hint: '' }));
   teacherWordInput.value = '';
@@ -2395,8 +2460,10 @@ function openNextStagePrompt() {
 function showFinalCompletion() {
   challenge.doorPassed = true;
   successOverlay.hidden = false;
-  document.querySelector('#success-title').textContent = '모든 스테이지를 완료했어요!';
-  successMessageEl.textContent = '모든 스테이지를 완료했어요!';
+  document.querySelector('#success-title').textContent = '14개의 자음 학습을 모두 완료했어요!';
+  successMessageEl.textContent = '14개의 자음 학습을 모두 완료했어요!\n정말 훌륭해요!';
+  successRestartButton.hidden = false;
+  successContinueButton.hidden = false;
 }
 
 function confirmNextStage() {
@@ -2536,6 +2603,8 @@ function resetChallenge({ regenerateLayout = true } = {}) {
 
 retryCollectButton.addEventListener('click', resetChallenge);
 retryButton.addEventListener('click', resetChallenge);
+successRestartButton.addEventListener('click', () => restartAdventure());
+successContinueButton.addEventListener('click', () => { successOverlay.hidden = true; });
 nextStageYesButton.addEventListener('click', confirmNextStage);
 nextStageNoButton.addEventListener('click', declineNextStage);
 
