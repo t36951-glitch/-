@@ -32,6 +32,7 @@ const letterItems = [
 ];
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
+const learningMonster = { x: 1040, y: 1050, resolved: false, wobble: 0 };
 const collectedLetters = [];
 const pickupEffects = [];
 const MAX_ENERGY = 5;
@@ -51,6 +52,9 @@ const restCountdownNumber = document.querySelector('#rest-countdown-number');
 const hintOverlay = document.querySelector('#hint-overlay');
 const hintCloseButton = document.querySelector('#hint-close');
 const hintCurrentEl = document.querySelector('#hint-current');
+const monsterOverlay = document.querySelector('#monster-overlay');
+const monsterChoiceButtons = document.querySelectorAll('.monster-choice');
+const monsterFeedback = document.querySelector('#monster-feedback');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
 const retryCollectButton = document.querySelector('#retry-collect');
@@ -76,6 +80,7 @@ let hintHighlightTimer;
 let successAudioContext;
 let successEffect = null;
 let recoveryEffect = null;
+let monsterQuizOpen = false;
 
 function applyProfileToHud() {
   const preset = CHARACTER_PRESETS[profile.character];
@@ -229,7 +234,34 @@ function checkTreasureChest() {
   openHint();
 }
 
+function openMonsterQuiz() {
+  if (learningMonster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  monsterQuizOpen = true;
+  monsterFeedback.textContent = '';
+  monsterOverlay.hidden = false;
+  showNotice('글자 몬스터가 길을 막고 있어요.', 1800);
+}
+
+function checkMonsterProximity() {
+  if (learningMonster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  const footY = player.y + player.footOffsetY;
+  if (Math.hypot(player.x - learningMonster.x, footY - learningMonster.y) <= player.radius + 75) openMonsterQuiz();
+}
+
+function answerMonster(answer) {
+  if (!monsterQuizOpen || automaticRest.active || energy.current === 0) return;
+  if (answer === '사') {
+    learningMonster.resolved = true;
+    monsterQuizOpen = false;
+    monsterOverlay.hidden = true;
+    showNotice('잘했어요! 글자 몬스터가 길을 비켜 줍니다.', 2600);
+  } else {
+    monsterFeedback.textContent = '괜찮아요. 다시 생각해 볼까요?';
+  }
+}
+
 hintCloseButton.addEventListener('click', () => { hintOverlay.hidden = true; });
+monsterChoiceButtons.forEach((button) => button.addEventListener('click', () => answerMonster(button.dataset.answer)));
 
 function playSuccessSound() {
   try {
@@ -424,6 +456,7 @@ const bridgePassage = { x: 1808, y: 760, w: 112, h: 80 };
 const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 };
 // The right-hand house is the nearby rest place. This area is outside the doorway; no interior map is added.
 const restArea = { x: 1218, y: 560, w: 84, h: 70, xCenter: 1260, yCenter: 595 };
+const learningMonsterCollision = { x: 1000, y: 1000, w: 80, h: 70 };
 const DEBUG_COLLISIONS = false;
 
 function houseCollisionRects(x, y) {
@@ -540,7 +573,38 @@ function canMoveTo(x, y) {
     return circleIntersectsRect(x, testY, player.radius, rect);
   });
   const hitsClosedDoor = !challenge.doorOpen && circleIntersectsRect(x, footY, player.radius, stageDoor);
-  return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !isBlockedByRiver(x, y);
+  const hitsLearningMonster = !learningMonster.resolved && circleIntersectsRect(x, footY, player.radius, learningMonsterCollision);
+  return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !hitsLearningMonster && !isBlockedByRiver(x, y);
+}
+
+function drawLearningMonster() {
+  if (learningMonster.resolved) return;
+  const wobble = Math.sin(performance.now() / 420) * 2;
+  const x = learningMonster.x; const y = learningMonster.y + wobble;
+  const near = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y) < 125;
+  ctx.save();
+  if (near && energy.current > 0 && !automaticRest.active) {
+    ctx.fillStyle = 'rgba(255, 222, 104, .24)';
+    ctx.beginPath(); ctx.arc(x, y, 55 + Math.sin(performance.now() / 180) * 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(61, 98, 73, .18)';
+  ctx.beginPath(); ctx.ellipse(x, y + 38, 42, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#91c5a0';
+  ctx.beginPath(); ctx.arc(x, y, 34, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#c9e8b9';
+  ctx.beginPath(); ctx.arc(x, y - 4, 27, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#4f775b';
+  ctx.beginPath(); ctx.arc(x - 10, y - 5, 4, 0, Math.PI * 2); ctx.arc(x + 10, y - 5, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#4f775b'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(x, y + 5, 10, 0, Math.PI); ctx.stroke();
+  ctx.strokeStyle = '#6d9b74'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(x - 15, y - 29); ctx.lineTo(x - 23, y - 48); ctx.moveTo(x + 15, y - 29); ctx.lineTo(x + 23, y - 48); ctx.stroke();
+  ctx.fillStyle = '#f0bd62';
+  ctx.beginPath(); ctx.arc(x - 24, y - 51, 6, 0, Math.PI * 2); ctx.arc(x + 24, y - 51, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5b8562';
+  ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('글자 친구', x, y + 59);
+  ctx.restore();
 }
 
 function drawTreasureChest() {
@@ -709,6 +773,11 @@ function resetChallenge() {
   restCountdownNumber.textContent = '5';
   treasureChest.opened = false;
   treasureChest.sparkle = 0;
+  learningMonster.resolved = false;
+  learningMonster.wobble = 0;
+  monsterQuizOpen = false;
+  monsterOverlay.hidden = true;
+  monsterFeedback.textContent = '';
   hintOverlay.hidden = true;
   hintCurrentEl.textContent = currentHintMessage();
   nextLetterEl.classList.remove('is-highlighted');
@@ -773,7 +842,7 @@ function update(delta) {
   if (energy.current === 0 && !automaticRest.active) startAutomaticRest();
   updateAutomaticRest(delta);
   const now = performance.now();
-  const movementLocked = automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
+  const movementLocked = monsterQuizOpen || automaticRest.active || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
@@ -787,6 +856,7 @@ function update(delta) {
   if (!automaticRest.active && energy.current > 0) collectNearbyLetter();
   checkTreasureChest();
   if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
+  checkMonsterProximity();
   if (!automaticRest.active && energy.current > 0) updateRestZone(delta);
   updatePickupEffects(delta);
   checkDoorPassage();
@@ -817,7 +887,7 @@ function drawWorld() {
   // bridge stream
   ctx.strokeStyle = '#83cfe0'; ctx.lineWidth = 44; ctx.beginPath(); ctx.moveTo(1830, -50); ctx.bezierCurveTo(1810, 350, 1900, 610, 1810, 920); ctx.bezierCurveTo(1730, 1160, 1840, 1430, 1780, 1700); ctx.stroke();
   ctx.strokeStyle = '#c6ebec'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(1815, -50); ctx.bezierCurveTo(1795, 350, 1885, 610, 1795, 920); ctx.bezierCurveTo(1715, 1160, 1825, 1430, 1765, 1700); ctx.stroke();
-  drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor();
+  drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor(); drawLearningMonster();
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));

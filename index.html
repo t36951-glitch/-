@@ -73,6 +73,18 @@
           <div id="hint-current" class="hint-current">첫 번째 글자는 ‘사’예요.</div>
         </div>
       </section>
+      <section id="monster-overlay" class="monster-overlay" aria-live="polite" hidden>
+        <div class="monster-quiz-card">
+          <div class="monster-quiz-badge">글자 몬스터 문제</div>
+          <h2>사과의 첫 번째 음절은 무엇일까요?</h2>
+          <div class="monster-choices">
+            <button class="monster-choice" type="button" data-answer="사">사</button>
+            <button class="monster-choice" type="button" data-answer="과">과</button>
+            <button class="monster-choice" type="button" data-answer="나">나</button>
+          </div>
+          <p id="monster-feedback" class="monster-feedback"></p>
+        </div>
+      </section>
       <div id="rest-countdown" class="rest-countdown" role="status" aria-live="polite" hidden><strong id="rest-countdown-number">5</strong><span>집에서 쉬는 중</span></div>
       <section id="success-overlay" class="success-overlay" aria-live="polite" hidden>
         <div class="success-card">
