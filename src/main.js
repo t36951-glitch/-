@@ -92,13 +92,23 @@ let activeStage = normalizeStage((() => {
   } catch (error) { return DEFAULT_STAGE; }
 })());
 
-function createLetterItems(syllables) {
-  const positions = [[720, 430], [1580, 1080], [620, 380], [1510, 1180], [540, 980], [1680, 420]];
+const LAYOUT_STORAGE_KEY = 'letter-kingdom-stage-layouts';
+let stageLayouts = (() => {
+  try { return JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) || '{}'); } catch (error) { return {}; }
+})();
+
+function persistStageLayouts() {
+  try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(stageLayouts)); } catch (error) { /* localStorage may be unavailable */ }
+}
+
+function createLetterItems(syllables, positions = []) {
   return syllables.map((character, index) => ({
     id: `stage-letter-${index}`,
     character,
-    x: positions[index][0],
-    y: positions[index][1],
+    x: positions[index]?.x ?? 720 + index * 120,
+    y: positions[index]?.y ?? 430 + index * 80,
+    protectedMonsterId: `protected-monster-${index}`,
+    unlocked: false,
     collected: false,
     disabled: false,
     wobble: 0
@@ -119,7 +129,7 @@ const SYLLABLE_COLORS = {
   border: '#e6ac4f',
   text: '#d9795f'
 };
-let letterItems = createLetterItems(activeStage.syllables);
+let letterItems = [];
 const monsterReward = {
   id: 'monster-reward',
   type: 'syllable',
@@ -141,23 +151,16 @@ function availableLetterItems() {
 }
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
-const learningMonster = {
-  x: 1040,
-  y: 1050,
-  resolved: false,
-  wobble: 0,
-  hp: 3,
-  maxHp: 3,
-  state: 'idle',
-  warningUntil: 0,
-  nextAttackAt: 0,
-  attackActiveUntil: 0,
-  attackToken: 0,
-  defeatStartedAt: 0,
-  quizResolved: false,
-  outOfRangeSince: 0,
-  recoveryElapsed: 0
-};
+function createLearningMonster(id, x, y, protectedLetterIndex = null) {
+  return {
+    id, x, y, protectedLetterIndex, isAdditional: protectedLetterIndex === null,
+    resolved: false, wobble: 0, hp: 3, maxHp: 3, state: 'idle',
+    warningUntil: 0, nextAttackAt: 0, attackActiveUntil: 0, attackToken: 0,
+    defeatStartedAt: 0, quizResolved: false, outOfRangeSince: 0, recoveryElapsed: 0
+  };
+}
+let learningMonster = createLearningMonster('learning-monster-0', 1040, 1050);
+let learningMonsters = [learningMonster];
 const combat = { current: 3, max: 3, inCombat: false, lastDamageAt: 0, recoveryElapsed: 0 };
 const BASIC_ATTACK_INTERVAL = 1000;
 const MONSTER_ATTACK_INTERVAL = BASIC_ATTACK_INTERVAL / 1.2;
@@ -201,6 +204,9 @@ const monsterChoiceButtons = document.querySelectorAll('.monster-choice');
 const monsterFeedback = document.querySelector('#monster-feedback');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
+const restartPrompt = document.querySelector('#restart-prompt');
+const restartYesButton = document.querySelector('#restart-yes');
+const restartNoButton = document.querySelector('#restart-no');
 const successMessageEl = document.querySelector('#success-message');
 const nextStagePrompt = document.querySelector('#next-stage-prompt');
 const nextStageTitle = document.querySelector('#next-stage-title');
@@ -258,6 +264,7 @@ let successAudioContext;
 let successEffect = null;
 let recoveryEffect = null;
 let monsterQuizOpen = false;
+let quizTargetMonster = learningMonster;
 let monsterAnswerCooldownUntil = 0;
 let monsterUnlockTimer;
 let combatAudioContext;
@@ -580,9 +587,33 @@ function beginCharacterChange() {
   showSetupStep();
 }
 
+function closeRestartPrompt() {
+  restartPrompt.hidden = true;
+}
+
 function restartAdventure() {
   closeMenu();
-  resetChallenge();
+  restartPrompt.hidden = false;
+  restartYesButton.focus();
+}
+
+function confirmRestartAdventure() {
+  const firstStage = teacherStages.find((stage) => stage.stageNumber === 1 && stage.displayWord && stage.syllables.length) || normalizeStage(DEFAULT_STAGE);
+  firstStage.locked = false;
+  teacherStages.forEach((stage) => {
+    stage.active = stage.id === firstStage.id;
+    stage.completed = false;
+  });
+  persistTeacherStages();
+  closeRestartPrompt();
+  applyStage(firstStage, { regenerateLayout: true });
+  gameStarted = true;
+  startScreen.hidden = true;
+  persistProfile();
+}
+
+function declineRestartAdventure() {
+  closeRestartPrompt();
 }
 
 function resetProfile() {
@@ -724,12 +755,12 @@ function saveTeacherStage() {
   showTeacherList();
 }
 
-function applyStage(stage) {
+function applyStage(stage, { regenerateLayout = true } = {}) {
   activeStage = normalizeStage(stage);
-  letterItems = createLetterItems(activeStage.syllables);
+  initializeStageEntities(activeStage, regenerateLayout);
   saveActiveStageId();
   applyStageUi();
-  resetChallenge();
+  resetChallenge({ regenerateLayout: false });
 }
 
 function applyStageUi() {
@@ -806,6 +837,8 @@ teacherStageList.addEventListener('click', (event) => {
 menuButton.addEventListener('click', () => (menuPanel.hidden ? openMenu() : closeMenu()));
 changeCharacterButton.addEventListener('click', beginCharacterChange);
 restartAdventureButton.addEventListener('click', restartAdventure);
+restartYesButton.addEventListener('click', confirmRestartAdventure);
+restartNoButton.addEventListener('click', declineRestartAdventure);
 resetProfileButton.addEventListener('click', resetProfile);
 closeMenuButton.addEventListener('click', closeMenu);
 letterArchiveButton.addEventListener('click', () => renderArchive('letters'));
@@ -922,8 +955,9 @@ function setMonsterChoicesDisabled(disabled) {
   monsterChoiceButtons.forEach((button) => { button.disabled = disabled; });
 }
 
-function openMonsterQuiz() {
-  if (learningMonster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+function openMonsterQuiz(monster = learningMonster) {
+  if (monster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  quizTargetMonster = monster;
   monsterQuizOpen = true;
   monsterAnswerCooldownUntil = 0;
   monsterFeedback.textContent = '';
@@ -935,16 +969,17 @@ function openMonsterQuiz() {
 }
 
 function checkMonsterProximity() {
-  if (learningMonster.resolved || learningMonster.quizResolved || automaticRest.active || restState.promptOpen || energy.current === 0 || monsterQuizOpen) return;
+  if (automaticRest.active || restState.promptOpen || !restartPrompt.hidden || energy.current === 0 || monsterQuizOpen) return;
   const footY = player.y + player.footOffsetY;
-  if (Math.hypot(player.x - learningMonster.x, footY - learningMonster.y) <= player.radius + 75) openMonsterQuiz();
+  const nearby = learningMonsters.find((monster) => !monster.resolved && !monster.quizResolved && Math.hypot(player.x - monster.x, footY - monster.y) <= player.radius + 75);
+  if (nearby) openMonsterQuiz(nearby);
 }
 
 function answerMonster(answer) {
   const now = performance.now();
   if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
   if (answer === activeStage.syllables[0]) {
-    learningMonster.quizResolved = true;
+    quizTargetMonster.quizResolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
     setMonsterChoicesDisabled(false);
@@ -1135,13 +1170,13 @@ function knockBackFromLetter(item) {
   if (canMoveTo(player.x, nextY)) player.y = nextY;
 }
 
-function disengageTrainingMonster() {
-  if (learningMonster.resolved) return;
-  learningMonster.state = 'idle';
-  learningMonster.warningUntil = 0;
-  learningMonster.attackActiveUntil = 0;
-  learningMonster.nextAttackAt = 0;
-  learningMonster.outOfRangeSince ||= performance.now();
+function disengageTrainingMonster(monster = learningMonster) {
+  if (monster.resolved) return;
+  monster.state = 'idle';
+  monster.warningUntil = 0;
+  monster.attackActiveUntil = 0;
+  monster.nextAttackAt = 0;
+  monster.outOfRangeSince ||= performance.now();
   combat.inCombat = false;
   combat.lastDamageAt = 0;
   combat.recoveryElapsed = 0;
@@ -1149,7 +1184,7 @@ function disengageTrainingMonster() {
 
 function startAutomaticRest(reason = 'energy') {
   if (automaticRest.active) return;
-  disengageTrainingMonster();
+  learningMonsters.forEach((monster) => disengageTrainingMonster(monster));
   closeRestPrompt();
   restState.promptDismissed = true;
   resetSkillState();
@@ -1196,13 +1231,16 @@ function updateAutomaticRest(delta) {
   automaticRest.elapsed = 0;
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
-  learningMonster.hp = Math.ceil(learningMonster.maxHp / 2);
-  learningMonster.recoveryElapsed = 0;
-  learningMonster.outOfRangeSince = 0;
-  learningMonster.state = 'idle';
-  learningMonster.warningUntil = 0;
-  learningMonster.attackActiveUntil = 0;
-  learningMonster.nextAttackAt = 0;
+  learningMonsters.forEach((monster) => {
+    monster.hp = Math.ceil(monster.maxHp / 2);
+    monster.recoveryElapsed = 0;
+    monster.outOfRangeSince = 0;
+    monster.state = 'idle';
+    monster.warningUntil = 0;
+    monster.attackActiveUntil = 0;
+    monster.nextAttackAt = 0;
+  });
+  learningMonster = learningMonsters[0] || learningMonster;
   combat.current = combat.max;
   combat.inCombat = false;
   combat.lastDamageAt = 0;
@@ -1232,9 +1270,9 @@ function getFacingVector() {
   return player.facingVector;
 }
 
-function isTargetInAttackDirection() {
-  const dx = learningMonster.x - player.x;
-  const dy = learningMonster.y - (player.y + player.footOffsetY);
+function isTargetInAttackDirection(monster = learningMonster) {
+  const dx = monster.x - player.x;
+  const dy = monster.y - (player.y + player.footOffsetY);
   const distance = Math.hypot(dx, dy);
   if (!distance) return true;
   const targetX = dx / distance;
@@ -1247,9 +1285,9 @@ function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
   attackState.effects.push({ x, y, type, direction: { ...direction }, life: type === 'defeat' ? 1.8 : .55, maxLife: type === 'defeat' ? 1.8 : .55 });
 }
 
-function dropMonsterReward() {
+function dropMonsterReward(monster = learningMonster) {
   const neededCharacter = activeStage.syllables[collectedLetters.length];
-  const needsSyllable = Boolean(neededCharacter && !collectedLetters.includes(neededCharacter));
+  const needsSyllable = monster.isAdditional && Boolean(neededCharacter && !collectedLetters.includes(neededCharacter));
   if (monsterReward.dropped || !needsSyllable && rewardState.nonSyllableStreak >= 2) return;
   const roll = Math.random();
   const type = needsSyllable && (rewardState.nonSyllableStreak >= 2 || roll < .5)
@@ -1264,8 +1302,8 @@ function dropMonsterReward() {
   } else {
     rewardState.nonSyllableStreak += 1;
   }
-  monsterReward.x = learningMonster.x + 38;
-  monsterReward.y = learningMonster.y + 24;
+  monsterReward.x = monster.x + 38;
+  monsterReward.y = monster.y + 24;
   monsterReward.active = true;
   monsterReward.collected = false;
   monsterReward.dropped = true;
@@ -1277,23 +1315,28 @@ function dropMonsterReward() {
   showNotice(message, 2400);
 }
 
-function damageTrainingMonster(amount = 1) {
-  if (learningMonster.resolved || learningMonster.hp <= 0) return false;
-  learningMonster.hp = Math.max(0, learningMonster.hp - amount);
-  learningMonster.wobble = 1;
-  addCombatEffect(learningMonster.x, learningMonster.y, 'hit');
-  if (learningMonster.hp === 0) {
-    learningMonster.resolved = true;
-    learningMonster.state = 'friend';
+function damageTrainingMonster(monster = learningMonster, amount = 1) {
+  if (monster.resolved || monster.hp <= 0) return false;
+  monster.hp = Math.max(0, monster.hp - amount);
+  monster.wobble = 1;
+  addCombatEffect(monster.x, monster.y, 'hit');
+  if (monster.hp === 0) {
+    monster.resolved = true;
+    monster.state = 'friend';
+    const protectedItem = monster.protectedLetterIndex === null ? null : letterItems[monster.protectedLetterIndex];
+    if (protectedItem) {
+      protectedItem.unlocked = true;
+      showNotice('몬스터가 정화되었어요! 이제 글자를 찾아보세요.', 2400);
+    }
     combat.inCombat = false;
     combat.recoveryElapsed = 0;
-    learningMonster.defeatStartedAt = performance.now();
-    learningMonster.warningUntil = 0;
-    learningMonster.attackActiveUntil = 0;
+    monster.defeatStartedAt = performance.now();
+    monster.warningUntil = 0;
+    monster.attackActiveUntil = 0;
     attackState.projectiles.length = 0;
-    addCombatEffect(learningMonster.x, learningMonster.y, 'defeat');
-    showNotice('훈련 몬스터가 빛의 친구가 되었어요!', 2200);
-    dropMonsterReward();
+    addCombatEffect(monster.x, monster.y, 'defeat');
+    if (!protectedItem) showNotice('훈련 몬스터가 빛의 친구가 되었어요!', 2200);
+    dropMonsterReward(monster);
   }
   return true;
 }
@@ -1318,8 +1361,8 @@ function useBasicAttack() {
   if (!gameStarted || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
   attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
-    const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
-    if (!learningMonster.resolved && distance <= 125 && isTargetInAttackDirection()) damageTrainingMonster(1);
+    const target = learningMonsters.find((monster) => !monster.resolved && Math.hypot(player.x - monster.x, player.y + player.footOffsetY - monster.y) <= 125 && isTargetInAttackDirection(monster));
+    if (target) damageTrainingMonster(target, 1);
     addCombatEffect(player.x, player.y - 12, 'slash', getFacingVector());
   } else if (profile.character === 'archer') {
     queueProjectile('arrow');
@@ -1337,10 +1380,11 @@ function updateBasicAttacks(delta) {
     projectile.x += projectile.vx * delta;
     projectile.y += projectile.vy * delta;
     projectile.life -= delta;
-    if (!projectile.hit && !learningMonster.resolved && Math.hypot(projectile.x - learningMonster.x, projectile.y - learningMonster.y) <= 38) {
+    const target = learningMonsters.find((monster) => !monster.resolved && Math.hypot(projectile.x - monster.x, projectile.y - monster.y) <= 38);
+    if (!projectile.hit && target) {
       projectile.hit = true;
       projectile.life = 0;
-      damageTrainingMonster(1);
+      damageTrainingMonster(target, 1);
     }
   });
   attackState.projectiles = attackState.projectiles.filter((projectile) => projectile.life > 0);
@@ -1399,6 +1443,13 @@ function collectNearbyLetter() {
     return;
   }
   const isMonsterReward = item.source === 'monster-reward';
+  if (!isMonsterReward && item.protectedMonsterId) {
+    const protector = learningMonsters.find((monster) => monster.id === item.protectedMonsterId);
+    if (protector && !protector.resolved) {
+      showNotice('몬스터를 먼저 정화해야 이 글자를 얻을 수 있어요.', 2200);
+      return;
+    }
+  }
   if ((!isMonsterReward || monsterReward.type === 'syllable') && item.character !== neededCharacter) {
     handleWrongLetterContact(item);
     return;
@@ -1547,8 +1598,108 @@ const bridgePassage = { x: 1808, y: 760, w: 112, h: 80 };
 const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 };
 // The right-hand house is the nearby rest place. This area is outside the doorway; no interior map is added.
 const restArea = { x: 1218, y: 560, w: 84, h: 70, xCenter: 1260, yCenter: 595 };
-const learningMonsterCollision = { x: 1000, y: 1000, w: 80, h: 70 };
 const DEBUG_COLLISIONS = false;
+const STAGE_ZONES = [
+  { x: 140, y: 120, w: 460, h: 390 },
+  { x: 680, y: 110, w: 390, h: 390 },
+  { x: 1320, y: 120, w: 390, h: 360 },
+  { x: 120, y: 900, w: 520, h: 480 },
+  { x: 720, y: 1080, w: 560, h: 390 },
+  { x: 1320, y: 960, w: 400, h: 420 },
+  { x: 1980, y: 300, w: 300, h: 420 },
+  { x: 1960, y: 900, w: 300, h: 440 },
+  { x: 1320, y: 650, w: 390, h: 260 }
+];
+
+function seededRandom(seed) {
+  let value = Math.abs(Number(seed) || 1) % 2147483647;
+  return () => {
+    value = value * 16807 % 2147483647;
+    return (value - 1) / 2147483646;
+  };
+}
+
+function stageSeed(stage, nonce = 0) {
+  return Array.from(`${stage.id}:${stage.stageNumber}:${nonce}`).reduce((sum, character) => ((sum * 31) + character.charCodeAt(0)) % 2147483647, 17);
+}
+
+function isValidSpawnPosition(x, y, reserved = [], radius = 34) {
+  const footY = y + player.footOffsetY;
+  if (x < 70 || y < 70 || x > WORLD.width - 70 || y > WORLD.height - 70) return false;
+  if (Math.hypot(x - 1200, y - 805) < 190) return false;
+  if (Math.hypot(x - restArea.xCenter, footY - restArea.yCenter) < 170) return false;
+  if (Math.hypot(x - stageDoor.xCenter, footY - stageDoor.y) < 150) return false;
+  if (isBlockedByRiver(x, y)) return false;
+  if (x >= bridgePassage.x - radius && x <= bridgePassage.x + bridgePassage.w + radius && footY >= bridgePassage.y - radius && footY <= bridgePassage.y + bridgePassage.h + radius) return false;
+  if (collisions.some((item) => Math.hypot(x - item.x, y - item.y) < item.r + radius)) return false;
+  if (staticRects.some((rect) => circleIntersectsRect(x, rect.name.startsWith('house') ? footY : y, radius, rect))) return false;
+  return reserved.every((item) => Math.hypot(x - item.x, y - item.y) >= item.minDistance);
+}
+
+function createStageLayout(stage, regenerate = false) {
+  const key = stage.id;
+  const previous = stageLayouts[key];
+  const nonce = regenerate ? Number(previous?.nonce || 0) + 1 : Number(previous?.nonce || 0);
+  if (!regenerate && previous?.letters?.length === stage.syllables.length && previous?.monsters?.length === stage.syllables.length + 1) return previous;
+  const random = seededRandom(stageSeed(stage, nonce));
+  const reserved = [];
+  const letters = [];
+  const monsters = [];
+  const candidates = STAGE_ZONES.flatMap((zone) => {
+    const points = [];
+    for (let index = 0; index < 18; index += 1) {
+      points.push({ x: zone.x + random() * zone.w, y: zone.y + random() * zone.h });
+    }
+    return points;
+  });
+  const takePosition = (minDistance, extraReserved = []) => {
+    for (let attempt = 0; attempt < candidates.length * 2; attempt += 1) {
+      const candidate = candidates[Math.floor(random() * candidates.length)];
+      const allReserved = [...reserved, ...extraReserved];
+      if (isValidSpawnPosition(candidate.x, candidate.y, allReserved, 34)) {
+        reserved.push({ x: candidate.x, y: candidate.y, minDistance });
+        return { x: Math.round(candidate.x), y: Math.round(candidate.y) };
+      }
+    }
+    const fallbacks = [[560, 420], [740, 320], [1480, 330], [420, 1070], [850, 1270], [1450, 1160], [2140, 530], [2140, 1150]];
+    const fallback = fallbacks.find((point) => isValidSpawnPosition(point[0], point[1], [...reserved, ...extraReserved], 34)) || [560, 420];
+    reserved.push({ x: fallback[0], y: fallback[1], minDistance });
+    return { x: fallback[0], y: fallback[1] };
+  };
+  const takeNearbyPosition = (anchor) => {
+    const nearbyReserved = [...reserved.slice(0, -1), { x: anchor.x, y: anchor.y, minDistance: 72 }];
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const angle = random() * Math.PI * 2;
+      const distance = 78 + random() * 38;
+      const x = anchor.x + Math.cos(angle) * distance;
+      const y = anchor.y + Math.sin(angle) * distance;
+      if (isValidSpawnPosition(x, y, nearbyReserved, 34)) {
+        reserved.push({ x, y, minDistance: 150 });
+        return { x: Math.round(x), y: Math.round(y) };
+      }
+    }
+    return takePosition(150, [{ x: anchor.x, y: anchor.y, minDistance: 72 }]);
+  };
+  stage.syllables.forEach((character, index) => {
+    const letter = takePosition(190);
+    letters.push({ x: letter.x, y: letter.y });
+    const monster = takeNearbyPosition(letter);
+    monsters.push({ id: `protected-monster-${index}`, x: monster.x, y: monster.y, protectedLetterIndex: index });
+  });
+  const extra = takePosition(170);
+  monsters.push({ id: 'additional-monster', x: extra.x, y: extra.y, protectedLetterIndex: null });
+  const layout = { nonce, letters, monsters };
+  stageLayouts[key] = layout;
+  persistStageLayouts();
+  return layout;
+}
+
+function initializeStageEntities(stage, regenerate = false) {
+  const layout = createStageLayout(stage, regenerate);
+  letterItems = createLetterItems(stage.syllables, layout.letters);
+  learningMonsters = layout.monsters.map((monster) => createLearningMonster(monster.id, monster.x, monster.y, monster.protectedLetterIndex));
+  learningMonster = learningMonsters[0] || createLearningMonster('learning-monster-0', 1040, 1050);
+}
 
 function houseCollisionRects(x, y) {
   const doorGapLeft = x - 41;
@@ -1684,7 +1835,7 @@ function canMoveTo(x, y) {
     return circleIntersectsRect(x, testY, player.radius, rect);
   });
   const hitsClosedDoor = !challenge.doorOpen && circleIntersectsRect(x, footY, player.radius, stageDoor);
-  const hitsLearningMonster = !learningMonster.resolved && circleIntersectsRect(x, footY, player.radius, learningMonsterCollision);
+  const hitsLearningMonster = learningMonsters.some((monster) => !monster.resolved && circleIntersectsRect(x, footY, player.radius, { x: monster.x - 40, y: monster.y - 35, w: 80, h: 70 }));
   return !hitsNaturalObstacle && !hitsStaticObstacle && !hitsClosedDoor && !hitsLearningMonster && !isBlockedByRiver(x, y);
 }
 
@@ -1722,7 +1873,7 @@ function updateCombatRecovery(delta) {
 }
 
 function updateTrainingMonster() {
-  if (learningMonster.resolved || automaticRest.active || restState.promptOpen || monsterQuizOpen) return;
+  if (learningMonster.resolved || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || monsterQuizOpen) return;
   const now = performance.now();
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > MONSTER_DETECTION_RANGE) {
@@ -1895,13 +2046,20 @@ function drawLetterItem(item) {
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
   const isNeeded = item.character === activeStage.syllables[collectedLetters.length];
-  const isNeededNear = isNeeded && distance < 125;
+  const isLocked = Boolean(item.protectedMonsterId && !item.unlocked);
+  const isNeededNear = isNeeded && !isLocked && distance < 125;
   const isSkillFocused = item.id === skillState.focusItemId && now < skillState.focusUntil;
   const wobbleOffset = item.wobble ? Math.sin(now / 38) * item.wobble * 7 : 0;
   const pulse = 1 + Math.sin(now / 240 + item.x) * 0.06;
   ctx.save();
   ctx.translate(item.x + wobbleOffset, item.y);
-  if (isNeededNear || isSkillFocused) {
+  if (isLocked) {
+    ctx.fillStyle = 'rgba(161, 186, 211, .28)';
+    ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#6d8da6';
+    ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('잠김', 0, -48);
+  } else if (isNeededNear || isSkillFocused) {
     ctx.fillStyle = isSkillFocused ? 'rgba(255, 219, 91, .5)' : isNeededNear ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
     ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
   }
@@ -1927,11 +2085,11 @@ function drawLetterItem(item) {
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(0, 29, 31, 9, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = SYLLABLE_COLORS.fill;
-  ctx.strokeStyle = SYLLABLE_COLORS.border;
+  ctx.fillStyle = isLocked ? '#dce7ed' : SYLLABLE_COLORS.fill;
+  ctx.strokeStyle = isLocked ? '#9db9c9' : SYLLABLE_COLORS.border;
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = SYLLABLE_COLORS.text;
+  ctx.fillStyle = isLocked ? '#6d8da6' : SYLLABLE_COLORS.text;
   ctx.font = 'bold 34px Jua, "Apple SD Gothic Neo", sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(item.character, 0, 2);
@@ -2027,10 +2185,11 @@ function drawCombatAttacks() {
     }
     ctx.restore();
   });
-  if (learningMonster.state === 'attack' && now < learningMonster.attackActiveUntil) {
+  learningMonsters.forEach((monster) => {
+    if (monster.state !== 'attack' || now >= monster.attackActiveUntil) return;
     ctx.save(); ctx.strokeStyle = 'rgba(244, 111, 104, .72)'; ctx.lineWidth = 5; ctx.setLineDash([8, 7]);
-    ctx.beginPath(); ctx.moveTo(learningMonster.x, learningMonster.y); ctx.lineTo(player.x, player.y + player.footOffsetY); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-  }
+    ctx.beginPath(); ctx.moveTo(monster.x, monster.y); ctx.lineTo(player.x, player.y + player.footOffsetY); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  });
 }
 
 function drawRestArea() {
@@ -2153,8 +2312,14 @@ function checkDoorPassage() {
   openNextStagePrompt();
 }
 
-function resetChallenge() {
-  letterItems.forEach((item) => { item.collected = false; item.disabled = false; item.wobble = 0; });
+function resetChallenge({ regenerateLayout = true } = {}) {
+  if (regenerateLayout) initializeStageEntities(activeStage, true);
+  const savedStage = teacherStages.find((stage) => stage.id === activeStage.id);
+  if (savedStage?.completed) {
+    savedStage.completed = false;
+    persistTeacherStages();
+  }
+  letterItems.forEach((item) => { item.collected = false; item.disabled = false; item.unlocked = false; item.wobble = 0; });
   monsterReward.active = false;
   monsterReward.collected = false;
   monsterReward.dropped = false;
@@ -2183,18 +2348,22 @@ function resetChallenge() {
   restCountdownNumber.textContent = '5';
   treasureChest.opened = false;
   treasureChest.sparkle = 0;
-  learningMonster.resolved = false;
-  learningMonster.wobble = 0;
-  learningMonster.hp = learningMonster.maxHp;
-  learningMonster.state = 'idle';
-  learningMonster.warningUntil = 0;
-  learningMonster.nextAttackAt = 0;
-  learningMonster.attackActiveUntil = 0;
-  learningMonster.attackToken = 0;
-  learningMonster.defeatStartedAt = 0;
-  learningMonster.quizResolved = false;
-  learningMonster.outOfRangeSince = 0;
-  learningMonster.recoveryElapsed = 0;
+  learningMonsters.forEach((monster) => {
+    learningMonster = monster;
+    learningMonster.resolved = false;
+    learningMonster.wobble = 0;
+    learningMonster.hp = learningMonster.maxHp;
+    learningMonster.state = 'idle';
+    learningMonster.warningUntil = 0;
+    learningMonster.nextAttackAt = 0;
+    learningMonster.attackActiveUntil = 0;
+    learningMonster.attackToken = 0;
+    learningMonster.defeatStartedAt = 0;
+    learningMonster.quizResolved = false;
+    learningMonster.outOfRangeSince = 0;
+    learningMonster.recoveryElapsed = 0;
+  });
+  learningMonster = learningMonsters[0] || learningMonster;
   attackState.cooldownUntil = 0;
   attackState.projectiles.length = 0;
   attackState.effects.length = 0;
@@ -2284,9 +2453,13 @@ function update(delta) {
   updateCombatRecovery(delta);
   const now = performance.now();
   updateSkillHud(now);
-  updateTrainingMonster();
-  updateTrainingMonsterRecovery(delta);
-  const movementLocked = monsterQuizOpen || automaticRest.active || stageTransition.promptOpen || energy.current === 0 || now < wrongContact.moveLockUntil;
+  learningMonsters.forEach((monster) => {
+    learningMonster = monster;
+    updateTrainingMonster();
+    updateTrainingMonsterRecovery(delta);
+  });
+  learningMonster = learningMonsters[0] || learningMonster;
+  const movementLocked = monsterQuizOpen || automaticRest.active || stageTransition.promptOpen || !restartPrompt.hidden || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
@@ -2334,7 +2507,9 @@ function drawWorld() {
   // bridge stream
   ctx.strokeStyle = '#83cfe0'; ctx.lineWidth = 44; ctx.beginPath(); ctx.moveTo(1830, -50); ctx.bezierCurveTo(1810, 350, 1900, 610, 1810, 920); ctx.bezierCurveTo(1730, 1160, 1840, 1430, 1780, 1700); ctx.stroke();
   ctx.strokeStyle = '#c6ebec'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(1815, -50); ctx.bezierCurveTo(1795, 350, 1885, 610, 1795, 920); ctx.bezierCurveTo(1715, 1160, 1825, 1430, 1765, 1700); ctx.stroke();
-  drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor(); drawLearningMonster();
+  drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor();
+  learningMonsters.forEach((monster) => { learningMonster = monster; drawLearningMonster(); });
+  learningMonster = learningMonsters[0] || learningMonster;
   flowers.forEach(([x, y], i) => drawFlower(x, y, i % 2 ? '#fff4a8' : '#f39c9e'));
   fences.forEach(([x, y]) => drawFence(x, y));
   trees.forEach(([x, y]) => drawTree(x, y)); rocks.forEach(([x, y]) => drawRock(x, y));
@@ -2416,5 +2591,6 @@ function drawPlayer() {
 }
 
 function frame(now) { const delta = Math.min((now - lastTime) / 1000, 0.05); lastTime = now; update(delta); drawWorld(); requestAnimationFrame(frame); }
+initializeStageEntities(activeStage, false);
 updateCollectionHud();
 requestAnimationFrame(frame);

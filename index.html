@@ -56,7 +56,7 @@
           <button id="item-storage-button" class="menu-action" type="button">아이템 창고</button>
           <button id="teacher-settings-button" class="menu-action menu-action-teacher" type="button">교사용 설정</button>
           <button id="change-character-button" class="menu-action" type="button">캐릭터 변경</button>
-          <button id="restart-adventure-button" class="menu-action" type="button">현재 모험 다시 시작</button>
+          <button id="restart-adventure-button" class="menu-action" type="button">처음부터 다시하기</button>
           <button id="reset-profile-button" class="menu-action menu-action-soft" type="button">프로필 초기화</button>
           <button id="close-menu-button" class="menu-action menu-action-close" type="button">메뉴 닫기</button>
         </div>
@@ -128,6 +128,13 @@
         <div class="rest-prompt-card">
           <h2 id="rest-prompt-title">휴식을 하시겠습니까?</h2>
           <div class="rest-prompt-actions"><button id="rest-yes" type="button">예</button><button id="rest-no" type="button">아니오</button></div>
+        </div>
+      </section>
+      <section id="restart-prompt" class="restart-prompt" role="dialog" aria-modal="true" aria-labelledby="restart-prompt-title" hidden>
+        <div class="restart-prompt-card">
+          <h2 id="restart-prompt-title">모험을 처음부터 다시 시작할까요?</h2>
+          <p>현재 스테이지 진행 상황이 초기화됩니다.</p>
+          <div class="restart-prompt-actions"><button id="restart-yes" type="button">예, 처음부터 시작</button><button id="restart-no" type="button">아니요</button></div>
         </div>
       </section>
       <section id="next-stage-prompt" class="next-stage-prompt" role="dialog" aria-modal="true" aria-labelledby="next-stage-title" hidden>
