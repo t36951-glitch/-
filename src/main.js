@@ -1623,6 +1623,8 @@ const stageDoor = { x: 1090, y: 760, w: 80, h: 24, xCenter: 1130, yCenter: 748 }
 // The right-hand house is the nearby rest place. This area is outside the doorway; no interior map is added.
 const restArea = { x: 1218, y: 560, w: 84, h: 70, xCenter: 1260, yCenter: 595 };
 const DEBUG_COLLISIONS = false;
+const DEBUG_REGIONS = false;
+const VILLAGE_CENTER = { x: 1140, y: 650, radiusX: 300, radiusY: 270 };
 const FIELD_REGIONS = [
   {
     id: 'village', name: '반짝숲 마을', message: '반짝숲 마을에 도착했어요!', color: 'rgba(255, 239, 178, .18)',
@@ -1649,8 +1651,31 @@ const STAGE_ZONES = [
   { x: 1320, y: 650, w: 390, h: 260 }
 ];
 
+function riverXAtY(y) {
+  for (let index = 0; index < riverCenterline.length - 1; index += 1) {
+    const [x1, y1] = riverCenterline[index];
+    const [x2, y2] = riverCenterline[index + 1];
+    if (y >= Math.min(y1, y2) && y <= Math.max(y1, y2)) {
+      const ratio = (y - y1) / (y2 - y1 || 1);
+      return x1 + (x2 - x1) * ratio;
+    }
+  }
+  return y < riverCenterline[0][1] ? riverCenterline[0][0] : riverCenterline.at(-1)[0];
+}
+
+function isInsideVillage(x, y) {
+  const dx = (x - VILLAGE_CENTER.x) / VILLAGE_CENTER.radiusX;
+  const dy = (y - VILLAGE_CENTER.y) / VILLAGE_CENTER.radiusY;
+  return dx * dx + dy * dy <= 1;
+}
+
 function fieldRegionAt(x, y) {
-  return FIELD_REGIONS.find((region) => region.areas.some((area) => x >= area.x && x <= area.x + area.w && y >= area.y && y <= area.y + area.h)) || FIELD_REGIONS[0];
+  if (isInsideVillage(x, y)) return FIELD_REGIONS.find((region) => region.id === 'village');
+  // The river is a continuous curved boundary. Crossing it (normally via the bridge)
+  // changes between the two field regions instead of falling back to the village.
+  return x < riverXAtY(y)
+    ? FIELD_REGIONS.find((region) => region.id === 'forest')
+    : FIELD_REGIONS.find((region) => region.id === 'playground');
 }
 
 function updateFieldRegion() {
@@ -1670,21 +1695,17 @@ function updateFieldRegion() {
 }
 
 function drawFieldRegions() {
-  FIELD_REGIONS.forEach((region) => {
-    region.areas.forEach((area) => {
-      ctx.fillStyle = region.color;
-      ctx.fillRect(area.x, area.y, area.w, area.h);
-      ctx.strokeStyle = 'rgba(255,255,255,.26)';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([12, 10]);
-      ctx.strokeRect(area.x, area.y, area.w, area.h);
-      ctx.setLineDash([]);
-    });
-  });
+  const village = FIELD_REGIONS.find((region) => region.id === 'village');
+  ctx.save();
+  ctx.fillStyle = village.color;
+  ctx.beginPath();
+  ctx.ellipse(VILLAGE_CENTER.x, VILLAGE_CENTER.y, VILLAGE_CENTER.radiusX, VILLAGE_CENTER.radiusY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
   const labels = [
-    { name: '반짝숲 마을', x: 1050, y: 455, color: '#bd8742' },
-    { name: '글자 숲', x: 420, y: 180, color: '#4f8c5e' },
-    { name: '음절 놀이터', x: 1040, y: 1110, color: '#c47a45' }
+    { name: '반짝숲 마을', x: 1140, y: 545, color: '#bd8742' },
+    { name: '글자 숲', x: 430, y: 180, color: '#4f8c5e' },
+    { name: '글자 놀이터', x: 2140, y: 540, color: '#4c7fa9' }
   ];
   labels.forEach(({ name, x, y, color }) => {
     ctx.save();
@@ -1695,6 +1716,27 @@ function drawFieldRegions() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(name, x, y - 4);
     ctx.restore();
   });
+  if (DEBUG_REGIONS) drawRegionDebug();
+}
+
+function drawRegionDebug() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(239, 145, 67, .9)';
+  ctx.lineWidth = 5;
+  ctx.setLineDash([14, 8]);
+  ctx.beginPath();
+  ctx.ellipse(VILLAGE_CENTER.x, VILLAGE_CENTER.y, VILLAGE_CENTER.radiusX, VILLAGE_CENTER.radiusY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = 'rgba(67, 157, 224, .86)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(riverCenterline[0][0], riverCenterline[0][1]);
+  riverCenterline.slice(1).forEach(([x, y]) => ctx.lineTo(x, y));
+  ctx.stroke();
+  ctx.fillStyle = '#e65757';
+  ctx.beginPath(); ctx.arc(player.x, player.y + player.footOffsetY, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 function seededRandom(seed) {
@@ -2588,7 +2630,6 @@ function drawWorld() {
   for (let x = 0; x < WORLD.width; x += 80) for (let y = 0; y < WORLD.height; y += 80) {
     if ((x / 80 + y / 80) % 3 === 0) ctx.fillRect(x + 13, y + 17, 3, 3);
   }
-  drawFieldRegions();
   // winding paths and central plaza
   ctx.strokeStyle = '#ead9a3'; ctx.lineCap = 'round'; ctx.lineWidth = 112;
   ctx.beginPath(); ctx.moveTo(-100, 780); ctx.bezierCurveTo(520, 740, 760, 840, 1180, 790); ctx.bezierCurveTo(1560, 745, 1840, 820, 2500, 700); ctx.stroke();
@@ -2597,6 +2638,7 @@ function drawWorld() {
   // bridge stream
   ctx.strokeStyle = '#83cfe0'; ctx.lineWidth = 44; ctx.beginPath(); ctx.moveTo(1830, -50); ctx.bezierCurveTo(1810, 350, 1900, 610, 1810, 920); ctx.bezierCurveTo(1730, 1160, 1840, 1430, 1780, 1700); ctx.stroke();
   ctx.strokeStyle = '#c6ebec'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(1815, -50); ctx.bezierCurveTo(1795, 350, 1885, 610, 1795, 920); ctx.bezierCurveTo(1715, 1160, 1825, 1430, 1765, 1700); ctx.stroke();
+  drawFieldRegions();
   drawHouse(1260, 480); drawHouse(430, 760); drawRestArea(); drawSign(1090, 720); drawStageDoor();
   learningMonsters.forEach((monster) => { learningMonster = monster; drawLearningMonster(); });
   learningMonster = learningMonsters[0] || learningMonster;
