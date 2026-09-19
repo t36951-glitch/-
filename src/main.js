@@ -26,6 +26,29 @@ const collisions = [
   { x: 1260, y: 585, r: 20 }, { x: 1380, y: 585, r: 20 }
 ];
 
+// Static map barriers. House walls keep a doorway-sized opening on the south side.
+const staticRects = [
+  { x: 816, y: 586, w: 208, h: 54, name: 'fence' },
+  ...houseCollisionRects(1260, 480),
+  ...houseCollisionRects(430, 760)
+];
+
+// The visible stream is a curved ribbon. The main path crossing near y=800 is its bridge route.
+const riverCenterline = [
+  [1830, -50], [1810, 350], [1900, 610], [1810, 920], [1730, 1160], [1840, 1430], [1780, 1700]
+];
+const bridgePassage = { x: 1760, y: 748, w: 150, h: 112 };
+
+function houseCollisionRects(x, y) {
+  return [
+    { x: x - 100, y: y - 75, w: 200, h: 80, name: 'house roof' },
+    { x: x - 80, y, w: 14, h: 80, name: 'house left wall' },
+    { x: x + 66, y, w: 14, h: 80, name: 'house right wall' },
+    { x: x - 80, y: y + 66, w: 50, h: 14, name: 'house door wall left' },
+    { x: x + 30, y: y + 66, w: 50, h: 14, name: 'house door wall right' }
+  ];
+}
+
 function resize() {
   const rect = shell.getBoundingClientRect();
   dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -76,9 +99,34 @@ function direction() {
   return len ? { x: x / Math.max(1, len), y: y / Math.max(1, len) } : { x: 0, y: 0 };
 }
 
+function circleIntersectsRect(cx, cy, radius, rect) {
+  const closestX = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+  const closestY = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+  return Math.hypot(cx - closestX, cy - closestY) <= radius;
+}
+
+function distanceToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function isBlockedByRiver(x, y) {
+  if (circleIntersectsRect(x, y, player.radius, bridgePassage)) return false;
+  const riverCollisionRadius = 22 + player.radius - 4;
+  return riverCenterline.slice(0, -1).some(([ax, ay], index) => {
+    const [bx, by] = riverCenterline[index + 1];
+    return distanceToSegment(x, y, ax, ay, bx, by) <= riverCollisionRadius;
+  });
+}
+
 function canMoveTo(x, y) {
   if (x < 45 || y < 45 || x > WORLD.width - 45 || y > WORLD.height - 45) return false;
-  return collisions.every((item) => Math.hypot(x - item.x, y - item.y) > item.r + player.radius - 5);
+  const hitsNaturalObstacle = collisions.some((item) => Math.hypot(x - item.x, y - item.y) <= item.r + player.radius - 5);
+  const hitsStaticObstacle = staticRects.some((rect) => circleIntersectsRect(x, y, player.radius, rect));
+  return !hitsNaturalObstacle && !hitsStaticObstacle && !isBlockedByRiver(x, y);
 }
 function update(delta) {
   const dir = direction();
