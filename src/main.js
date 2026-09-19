@@ -14,15 +14,21 @@ let lastTime = performance.now();
 
 const TARGET_WORD = ['사', '과'];
 const letterItems = [
-  { id: 'sa', character: '사', x: 720, y: 430, collected: false },
-  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false }
+  { id: 'sa', character: '사', x: 720, y: 430, collected: false, wobble: 0 },
+  { id: 'gwa', character: '과', x: 1580, y: 1080, collected: false, wobble: 0 }
 ];
 const collectedLetters = [];
 const pickupEffects = [];
+const MAX_ENERGY = 5;
+const energy = { current: MAX_ENERGY };
+const wrongTouchCooldown = new Map();
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
+const nextLetterEl = document.querySelector('#next-letter');
 const wordStateEl = document.querySelector('#word-state');
+const energyPipsEl = document.querySelector('#energy-pips');
+const energyCountEl = document.querySelector('#energy-count');
 const letterNotice = document.querySelector('#letter-notice');
 const successOverlay = document.querySelector('#success-overlay');
 const retryCollectButton = document.querySelector('#retry-collect');
@@ -31,12 +37,20 @@ let letterNoticeTimer;
 let successAudioContext;
 let successEffect = null;
 
+function updateEnergyHud() {
+  energyCountEl.textContent = `${energy.current}/${MAX_ENERGY}`;
+  energyPipsEl.querySelectorAll('i').forEach((pip, index) => pip.classList.toggle('is-active', index < energy.current));
+  energyPipsEl.classList.toggle('is-empty', energy.current === 0);
+}
+
 function updateCollectionHud() {
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
   letterCountEl.textContent = `${collectedLetters.length}/${TARGET_WORD.length}`;
-  wordStateEl.textContent = challenge.status === 'complete' ? '사과 완성!' : challenge.status === 'wrong' ? '순서를 다시 살펴봐요.' : '글자를 모아 보세요!';
+  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (TARGET_WORD[collectedLetters.length] || '없음');
+  wordStateEl.textContent = challenge.status === 'complete' ? '사과 완성!' : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
-  wordStateEl.classList.toggle('is-wrong', challenge.status === 'wrong');
+  wordStateEl.classList.remove('is-wrong');
+  updateEnergyHud();
 }
 
 function showNotice(message, duration = 1800) {
@@ -74,34 +88,39 @@ function completeWord() {
   challenge.doorOpen = true;
   successEffect = { x: stageDoor.x, y: stageDoor.y, life: 2.4 };
   updateCollectionHud();
-  showNotice('글자가 모여 단어가 되었어요! 문이 열렸습니다.', 3000);
+  showNotice('사과 완성! 문이 열렸어요.', 3000);
   playSuccessSound();
-}
-
-function evaluateWordOrder() {
-  if (collectedLetters.length !== TARGET_WORD.length) return;
-  if (collectedLetters.every((character, index) => character === TARGET_WORD[index])) completeWord();
-  else {
-    challenge.status = 'wrong';
-    updateCollectionHud();
-    showNotice('글자 순서를 다시 살펴봐요.', 2600);
-  }
 }
 
 function collectNearbyLetter() {
   const footY = player.y + player.footOffsetY;
+  const neededCharacter = TARGET_WORD[collectedLetters.length];
   const item = letterItems.find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
   if (!item) return;
+  if (item.character !== neededCharacter) {
+    item.wobble = 1;
+    const now = performance.now();
+    const lastTouch = wrongTouchCooldown.get(item.id) || -Infinity;
+    if (now - lastTouch < 1200) return;
+    wrongTouchCooldown.set(item.id, now);
+    energy.current = Math.max(0, energy.current - 1);
+    updateEnergyHud();
+    if (energy.current === 0) showNotice('괜찮아요. 천천히 다시 찾아볼까요?', 2500);
+    else showNotice('먼저 다른 음절을 찾아볼까요?', 1800);
+    return;
+  }
   item.collected = true;
   collectedLetters.push(item.character);
   pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
   updateCollectionHud();
-  showLetterNotice(item.character);
-  evaluateWordOrder();
+  if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
+  else showLetterNotice(item.character);
+  if (collectedLetters.length === TARGET_WORD.length) completeWord();
 }
 
 function updatePickupEffects(delta) {
   pickupEffects.forEach((effect) => { effect.life -= delta; });
+  letterItems.forEach((item) => { item.wobble = Math.max(0, item.wobble - delta * 2.6); });
   while (pickupEffects.length && pickupEffects[0].life <= 0) pickupEffects.shift();
   if (successEffect) {
     successEffect.life -= delta;
@@ -260,22 +279,24 @@ function canMoveTo(x, y) {
 function drawLetterItem(item) {
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
+  const isNeeded = item.character === TARGET_WORD[collectedLetters.length];
   const isNear = distance < 125;
+  const wobbleOffset = item.wobble ? Math.sin(performance.now() / 38) * item.wobble * 7 : 0;
   const pulse = 1 + Math.sin(performance.now() / 240 + item.x) * 0.06;
   ctx.save();
-  ctx.translate(item.x, item.y);
-  if (isNear) {
-    ctx.fillStyle = 'rgba(255, 223, 103, .25)';
+  ctx.translate(item.x + wobbleOffset, item.y);
+  if (isNeeded || isNear) {
+    ctx.fillStyle = isNeeded ? 'rgba(255, 223, 103, .34)' : 'rgba(194, 208, 238, .24)';
     ctx.beginPath(); ctx.arc(0, 0, 43 + Math.sin(performance.now() / 180) * 5, 0, Math.PI * 2); ctx.fill();
   }
   ctx.scale(pulse, pulse);
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(0, 29, 31, 9, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#fff7c7';
-  ctx.strokeStyle = '#e6ac4f';
+  ctx.fillStyle = isNeeded ? '#fff7c7' : '#f4f5ff';
+  ctx.strokeStyle = isNeeded ? '#e6ac4f' : '#9eafd7';
   ctx.lineWidth = 4;
   ctx.beginPath(); ctx.arc(0, 0, 29, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#d9795f';
+  ctx.fillStyle = isNeeded ? '#d9795f' : '#6479b2';
   ctx.font = 'bold 34px Jua, "Apple SD Gothic Neo", sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(item.character, 0, 2);
@@ -350,9 +371,11 @@ function checkDoorPassage() {
 }
 
 function resetChallenge() {
-  letterItems.forEach((item) => { item.collected = false; });
+  letterItems.forEach((item) => { item.collected = false; item.wobble = 0; });
   collectedLetters.length = 0;
   pickupEffects.length = 0;
+  wrongTouchCooldown.clear();
+  energy.current = MAX_ENERGY;
   successEffect = null;
   challenge.status = 'collecting';
   challenge.doorOpen = false;
@@ -469,4 +492,5 @@ function drawSign(x, y) { ctx.fillStyle = '#8f603f'; ctx.fillRect(x - 5, y, 10, 
 function drawPlayer() { const bounce = Math.sin(player.bob) * (direction().x || direction().y ? 3 : 0); const x = player.x; const y = player.y + bounce; ctx.fillStyle = 'rgba(50,80,60,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 29, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#5d83d8'; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill(); ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#6d4b43'; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke(); ctx.fillStyle = '#f3c85e'; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill(); }
 
 function frame(now) { const delta = Math.min((now - lastTime) / 1000, 0.05); lastTime = now; update(delta); drawWorld(); requestAnimationFrame(frame); }
+updateCollectionHud();
 requestAnimationFrame(frame);
