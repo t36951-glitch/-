@@ -40,13 +40,29 @@ const riverCenterline = [
 const bridgePassage = { x: 1760, y: 748, w: 150, h: 112 };
 
 function houseCollisionRects(x, y) {
+  const doorGapLeft = x - 41;
+  const doorGapRight = x + 41;
   return [
+    // The roof is blocked as a single footprint above the body.
     { x: x - 100, y: y - 75, w: 200, h: 80, name: 'house roof' },
+    // Side walls stay solid from the roof line to the bottom of the body.
     { x: x - 80, y, w: 14, h: 80, name: 'house left wall' },
     { x: x + 66, y, w: 14, h: 80, name: 'house right wall' },
-    { x: x - 80, y: y + 66, w: 50, h: 14, name: 'house door wall left' },
-    { x: x + 30, y: y + 66, w: 50, h: 14, name: 'house door wall right' }
+    // Bottom wall is split around the visual 28px-wide door. The wider gap
+    // accounts for the player's radius while keeping the door centered.
+    { x: x - 80, y: y + 66, w: doorGapLeft - (x - 80), h: 14, name: 'house door wall left' },
+    { x: doorGapRight, y: y + 66, w: (x + 80) - doorGapRight, h: 14, name: 'house door wall right' }
   ];
+}
+
+const houseDoors = [
+  { x: 1260, y: 530 },
+  { x: 430, y: 810 }
+];
+const doorNotice = document.querySelector('#door-notice');
+function updateDoorNotice() {
+  const atDoor = houseDoors.some((door) => Math.hypot(player.x - door.x, player.y - door.y) < 52);
+  doorNotice?.classList.toggle('is-visible', atDoor);
 }
 
 function resize() {
@@ -139,6 +155,7 @@ function update(delta) {
     if (Math.abs(dir.x) > Math.abs(dir.y)) player.facing = dir.x > 0 ? 'right' : 'left';
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
+  updateDoorNotice();
   const viewW = shell.clientWidth; const viewH = shell.clientHeight;
   camera.x += (player.x - viewW / 2 - camera.x) * Math.min(1, delta * 7);
   camera.y += (player.y - viewH / 2 - camera.y) * Math.min(1, delta * 7);
