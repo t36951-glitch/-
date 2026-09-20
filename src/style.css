@@ -234,6 +234,20 @@ button { font: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color:
 .hint-goal { margin:0 auto 12px; padding:8px 12px; border-radius:12px; color:#6f8976; background:#eff8e9; font-size:17px; font-weight:800; }
 .hint-goal strong { color:#df805e; font-family:Jua, sans-serif; font-size:23px; font-weight:400; letter-spacing:2px; }
 .hint-current { padding:11px 14px; border:3px solid #f3d16d; border-radius:14px; color:#b87545; background:#fff4c7; font-family:Jua, sans-serif; font-size:21px; }
+.boss-overlay { position:absolute; inset:0; z-index:15; display:grid; place-items:center; padding:20px; background:rgba(54,89,63,.22); backdrop-filter:blur(3px); }
+.boss-overlay[hidden] { display:none; }
+.boss-card { width:min(620px,calc(100% - 24px)); padding:25px 22px 20px; border:4px solid #fff; border-radius:28px; background:#fffced; box-shadow:0 20px 45px rgba(43,80,54,.28); text-align:center; }
+.boss-badge { display:inline-block; padding:6px 12px; border-radius:12px; color:#fff; background:#9b7bb4; font-size:13px; font-weight:900; }
+.boss-card h2 { margin:12px 0 10px; color:#d0785e; font-family:Jua,sans-serif; font-size:26px; font-weight:400; }
+.boss-hp-label { color:#7b766e; font-weight:900; }
+.boss-hp-label strong { color:#b96862; font-size:20px; }
+.boss-hp-track { height:14px; margin:8px 0 14px; overflow:hidden; border:2px solid #fff; border-radius:999px; background:#eaded8; }
+.boss-hp-track i { display:block; width:100%; height:100%; border-radius:inherit; background:linear-gradient(90deg,#ef7478,#b94d70); transition:width .25s ease; }
+#boss-writing-canvas { display:block; width:100%; height:auto; min-height:150px; border:3px solid #d7e8ce; border-radius:15px; background:#fffdf3; touch-action:none; cursor:crosshair; }
+.boss-actions { display:flex; justify-content:center; gap:8px; margin:10px 0; }
+.boss-actions button { padding:9px 12px; border:2px solid #d7e8ce; border-radius:10px; color:#5e7c66; background:#f5fbef; font-size:13px; font-weight:900; }
+.boss-actions button:nth-child(2) { color:#fff; border-color:#d88c64; background:#d88c64; }
+.boss-choices { margin-top:8px; }
 .monster-overlay { position:absolute; inset:0; z-index:13; display:grid; place-items:center; background:rgba(54,89,63,.18); backdrop-filter:blur(2px); }
 .monster-overlay[hidden] { display:none; }
 .monster-quiz-card { width:min(500px, calc(100% - 32px)); padding:28px 22px 22px; border:4px solid #fff; border-radius:28px; background:#f9fff1; box-shadow:0 18px 40px rgba(43,80,54,.22); text-align:center; }

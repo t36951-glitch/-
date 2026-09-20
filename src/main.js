@@ -31,7 +31,7 @@ const DEFAULT_STAGE = {
   id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
   hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
 };
-const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '', displayWord: '', syllables: [], learningMode: 'boss', consonant: '', hint: '', locked: true, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01' };
+const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '사과', displayWord: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ', hint: '목표 단어의 글자를 모두 맞혀 보세요.', locked: false, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01' };
 const DEFAULT_BATCHIM_STAGE = { stageNumber: 16, consonant: 'ㄱ', word: '국', syllables: ['국'], hint: '따뜻하게 먹는 음식이에요.', learningMode: 'syllable', stageGroup: '받침 학습', stageType: 'normal', mapId: 'batchim-field-01', villageId: 'batchim-village', monsterSetId: 'batchim-monster-01' };
 const DEFAULT_CONSONANT_STAGES = [
   { stageNumber: 1, consonant: 'ㄱ', word: '가방', syllables: ['가', '방'], hint: '물건을 넣고 다니는 것이에요.' },
@@ -250,6 +250,7 @@ const wrongContact = { touchingItemId: null, shieldUntil: 0, moveLockUntil: 0 };
 const restState = { inside: false, elapsed: 0, recovered: false, noticeShown: false, promptOpen: false, promptDismissed: false };
 const automaticRest = { active: false, elapsed: 0, lastSecond: 5, reason: 'energy' };
 const challenge = { status: 'collecting', doorOpen: false, doorPassed: false };
+const bossState = { maxHp: 7, hp: 7, questions: [], questionIndex: 0, active: false, canvasDirty: false };
 const stageTransition = { promptOpen: false, dismissedAtDoor: false, mode: null, nextStage: null };
 const collectedLettersEl = document.querySelector('#collected-letters');
 const letterCountEl = document.querySelector('#letter-count');
@@ -286,6 +287,16 @@ const nextStageTitle = document.querySelector('#next-stage-title');
 const nextStageMessage = document.querySelector('#next-stage-message');
 const nextStageYesButton = document.querySelector('#next-stage-yes');
 const nextStageNoButton = document.querySelector('#next-stage-no');
+const bossOverlay = document.querySelector('#boss-overlay');
+const bossQuestionEl = document.querySelector('#boss-question');
+const bossHpValueEl = document.querySelector('#boss-hp-value');
+const bossHpFillEl = document.querySelector('#boss-hp-fill');
+const bossWritingCanvas = document.querySelector('#boss-writing-canvas');
+const bossClearButton = document.querySelector('#boss-clear');
+const bossCheckButton = document.querySelector('#boss-check');
+const bossHintButton = document.querySelector('#boss-hint');
+const bossChoicesEl = document.querySelector('#boss-choices');
+const bossFeedbackEl = document.querySelector('#boss-feedback');
 const currentRegionNameEl = document.querySelector('#current-region-name');
 const regionToast = document.querySelector('#region-toast');
 const regionToastNameEl = document.querySelector('#region-toast-name');
@@ -512,7 +523,7 @@ function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
 
 function updateSkillHud(now = performance.now()) {
   clearArcherSkillFocusIfOutOfRange(now);
-  const canAttempt = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && now >= skillState.cooldownUntil;
+  const canAttempt = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && !bossState.active && now >= skillState.cooldownUntil;
   const ready = canAttempt && mp.current > 0;
   const cooldown = Math.max(0, Math.ceil((skillState.cooldownUntil - now) / 1000));
   skillNameEl.textContent = currentSkillName();
@@ -538,7 +549,7 @@ function updateSkillHud(now = performance.now()) {
   }
   skillButton.setAttribute('aria-label', `${currentSkillName()}${cooldown > 0 ? ` ${cooldown}초 후 사용 가능` : ''}${canAttempt && !ready ? ' 마나가 부족해요' : ''}`);
   if (attackButton) {
-    const attackReady = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && !monsterQuizOpen && now >= attackState.cooldownUntil;
+    const attackReady = gameStarted && energy.current > 0 && !automaticRest.active && !restState.promptOpen && !monsterQuizOpen && !bossState.active && now >= attackState.cooldownUntil;
     attackButton.disabled = !attackReady;
     attackButton.setAttribute('aria-label', '기본 공격');
   }
@@ -1114,7 +1125,7 @@ function setMonsterChoicesDisabled(disabled) {
 }
 
 function openMonsterQuiz(monster = learningMonster) {
-  if (isPlayerInVillage() || monster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  if (isBossStage() || isPlayerInVillage() || monster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
   quizTargetMonster = monster;
   monsterQuizOpen = true;
   monsterAnswerCooldownUntil = 0;
@@ -1127,7 +1138,7 @@ function openMonsterQuiz(monster = learningMonster) {
 }
 
 function checkMonsterProximity() {
-  if (isPlayerInVillage() || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || energy.current === 0 || monsterQuizOpen) return;
+  if (isBossStage() || isPlayerInVillage() || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || energy.current === 0 || monsterQuizOpen) return;
   const footY = player.y + player.footOffsetY;
   const nearby = learningMonsters.find((monster) => !monster.resolved && !monster.quizResolved && Math.hypot(player.x - monster.x, footY - monster.y) <= player.radius + 75);
   if (nearby) openMonsterQuiz(nearby);
@@ -1175,6 +1186,128 @@ function answerMonster(answer) {
     setMonsterChoicesDisabled(false);
     monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
   }, 1000);
+}
+
+function isBossStage() {
+  return activeStage.stageNumber === 15 || activeStage.bossReserved;
+}
+
+function buildBossQuestions() {
+  const units = currentLearningUnits();
+  const word = activeStageWord();
+  const questions = [];
+  const descriptors = ['first', 'last', 'middle', 'position'];
+  for (let index = 0; index < bossState.maxHp; index += 1) {
+    const type = descriptors[index % descriptors.length];
+    const targetIndex = type === 'first' ? 0 : type === 'last' ? Math.max(0, units.length - 1) : type === 'middle' ? Math.max(0, Math.ceil(units.length / 2) - 1) : index % Math.max(1, units.length);
+    const position = targetIndex + 1;
+    const label = type === 'first' ? '첫 번째' : type === 'last' ? '마지막' : type === 'middle' ? '가운데' : `${position}번째`;
+    questions.push({ questionId: index + 1, questionType: type, targetWord: word, targetSyllable: units[targetIndex]?.label || '', targetIndex, questionText: `${word}에서 ${label} 학습 단위는?`, answered: false, answerMethod: 'choice_or_handwriting' });
+  }
+  return questions;
+}
+
+function clearBossCanvas() {
+  const context = bossWritingCanvas?.getContext('2d');
+  if (!context) return;
+  context.clearRect(0, 0, bossWritingCanvas.width, bossWritingCanvas.height);
+  context.fillStyle = '#fffdf3';
+  context.fillRect(0, 0, bossWritingCanvas.width, bossWritingCanvas.height);
+  context.strokeStyle = '#d7e8ce';
+  context.lineWidth = 2;
+  context.setLineDash([7, 7]);
+  context.beginPath(); context.moveTo(18, bossWritingCanvas.height - 24); context.lineTo(bossWritingCanvas.width - 18, bossWritingCanvas.height - 24); context.stroke();
+  context.setLineDash([]);
+  bossState.canvasDirty = false;
+}
+
+function updateBossQuestion() {
+  const question = bossState.questions[bossState.questionIndex];
+  if (!question) return;
+  bossQuestionEl.textContent = question.questionText;
+  bossChoicesEl.innerHTML = [...new Set([question.targetSyllable, ...currentLearningUnits().map((unit) => unit.label), '나', '다'])].slice(0, 4).map((choice) => `<button class="monster-choice" type="button" data-boss-answer="${escapeHtml(choice)}">${escapeHtml(choice)}</button>`).join('');
+  bossFeedbackEl.textContent = '';
+  updateBossHud();
+  clearBossCanvas();
+}
+
+function updateBossHud() {
+  bossHpValueEl.textContent = `${bossState.hp} / ${bossState.maxHp}`;
+  bossHpFillEl.style.width = `${bossState.hp / bossState.maxHp * 100}%`;
+}
+
+function resetBossState() {
+  bossState.hp = bossState.maxHp;
+  bossState.questionIndex = 0;
+  bossState.questions = isBossStage() ? buildBossQuestions() : [];
+  bossState.active = isBossStage();
+  bossOverlay.hidden = !bossState.active;
+  if (bossState.active) {
+    monsterQuizOpen = false;
+    monsterOverlay.hidden = true;
+    updateBossQuestion();
+  }
+}
+
+function completeBossQuestion() {
+  bossState.active = false;
+  bossOverlay.hidden = true;
+  learningMonsters.forEach((monster) => { monster.resolved = true; monster.state = 'friend'; monster.warningUntil = 0; monster.attackActiveUntil = 0; });
+  const nextStage = teacherStages.find((stage) => stage.stageNumber === 16);
+  if (nextStage) nextStage.locked = false;
+  const units = currentLearningUnits();
+  collectedLetters.length = 0;
+  units.forEach((unit) => collectedLetters.push(unit.label));
+  completeWord();
+  persistTeacherStages();
+  showNotice('15단계 보스를 정화했어요!\n문제를 모두 해결했어요!\n16단계 마을이 열렸어요!', 4200);
+}
+
+function answerBoss(answer) {
+  if (!bossState.active || bossOverlay.hidden || automaticRest.active) return;
+  const question = bossState.questions[bossState.questionIndex];
+  if (!question || question.answered) return;
+  if (answer !== question.targetSyllable) {
+    bossFeedbackEl.textContent = '다시 생각해 볼까요? 힌트를 확인해 보세요.';
+    return;
+  }
+  question.answered = true;
+  bossState.hp = Math.max(0, bossState.hp - 1);
+  bossFeedbackEl.textContent = '정답이에요!';
+  updateBossHud();
+  playSuccessSound();
+  if (bossState.hp === 0) {
+    completeBossQuestion();
+    return;
+  }
+  bossState.questionIndex += 1;
+  window.setTimeout(updateBossQuestion, 450);
+}
+
+bossClearButton.addEventListener('click', clearBossCanvas);
+bossHintButton.addEventListener('click', () => {
+  const question = bossState.questions[bossState.questionIndex];
+  bossFeedbackEl.textContent = question ? `힌트: ${question.targetSyllable}를 찾아보세요.` : '';
+});
+bossCheckButton.addEventListener('click', () => {
+  bossFeedbackEl.textContent = bossState.canvasDirty
+    ? '글자를 잘 인식하지 못했어요. 조금 더 크게 다시 써볼까요? 보기로 선택해도 좋아요.'
+    : '먼저 글자를 써 주세요. 보기로 선택해도 좋아요.';
+});
+bossChoicesEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-boss-answer]');
+  if (button) answerBoss(button.dataset.bossAnswer);
+});
+if (bossWritingCanvas) {
+  const context = bossWritingCanvas.getContext('2d');
+  let drawing = false;
+  const point = (event) => {
+    const rect = bossWritingCanvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * bossWritingCanvas.width / rect.width, y: (event.clientY - rect.top) * bossWritingCanvas.height / rect.height };
+  };
+  bossWritingCanvas.addEventListener('pointerdown', (event) => { drawing = true; bossWritingCanvas.setPointerCapture(event.pointerId); const p = point(event); context.beginPath(); context.moveTo(p.x, p.y); bossState.canvasDirty = true; });
+  bossWritingCanvas.addEventListener('pointermove', (event) => { if (!drawing) return; const p = point(event); context.lineTo(p.x, p.y); context.stroke(); });
+  ['pointerup', 'pointercancel'].forEach((type) => bossWritingCanvas.addEventListener(type, () => { drawing = false; }));
 }
 
 hintCloseButton.addEventListener('click', () => { hintOverlay.hidden = true; });
@@ -1495,7 +1628,7 @@ function dropMonsterReward(monster = learningMonster) {
 }
 
 function damageTrainingMonster(monster = learningMonster, amount = 1) {
-  if (monster.resolved || monster.hp <= 0) return false;
+  if (isBossStage() || monster.resolved || monster.hp <= 0) return false;
   monster.hp = Math.max(0, monster.hp - amount);
   monster.wobble = 1;
   addCombatEffect(monster.x, monster.y, 'hit');
@@ -1537,7 +1670,7 @@ function queueProjectile(type) {
 
 function useBasicAttack() {
   const now = performance.now();
-  if (!gameStarted || isPlayerInVillage() || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
+  if (!gameStarted || isBossStage() || isPlayerInVillage() || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
   attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
     const target = learningMonsters.find((monster) => !monster.resolved && Math.hypot(player.x - monster.x, player.y + player.footOffsetY - monster.y) <= 125 && isTargetInAttackDirection(monster));
@@ -2145,7 +2278,7 @@ function canMoveTo(x, y) {
 }
 
 function applyTrainingMonsterAttack() {
-  if (isPlayerInVillage() || learningMonster.resolved || automaticRest.active) return;
+  if (isBossStage() || isPlayerInVillage() || learningMonster.resolved || automaticRest.active) return;
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > MONSTER_MELEE_RANGE) return;
   combat.lastDamageAt = performance.now();
@@ -2178,7 +2311,7 @@ function updateCombatRecovery(delta) {
 }
 
 function updateTrainingMonster() {
-  if (isPlayerInVillage() || learningMonster.resolved || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || monsterQuizOpen) return;
+  if (isBossStage() || isPlayerInVillage() || learningMonster.resolved || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || monsterQuizOpen) return;
   const now = performance.now();
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > MONSTER_DETECTION_RANGE) {
@@ -2545,7 +2678,7 @@ function closeNextStagePrompt() {
 function openNextStagePrompt() {
   const nextStageNumber = activeStage.stageNumber + 1;
   const nextStage = teacherStages.find((stage) => stage.stageNumber === nextStageNumber);
-  const isReady = nextStage && !nextStage.locked && nextStage.displayWord && nextStage.syllables.length;
+  const isReady = nextStage && (nextStage.bossReserved || !nextStage.locked) && nextStage.displayWord && nextStage.syllables.length;
   if (!isReady) {
     stageTransition.mode = 'unprepared';
     stageTransition.nextStage = null;
@@ -2580,7 +2713,7 @@ function confirmNextStage() {
   if (!stageTransition.promptOpen || stageTransition.mode !== 'confirm' || !stageTransition.nextStage) return;
   const nextStage = stageTransition.nextStage;
   const nextStageRecord = teacherStages.find((stage) => stage.id === nextStage.id);
-  if (!nextStageRecord || nextStageRecord.locked || !nextStageRecord.displayWord || !nextStageRecord.syllables.length) {
+  if (!nextStageRecord || (!nextStageRecord.bossReserved && nextStageRecord.locked) || !nextStageRecord.displayWord || !nextStageRecord.syllables.length) {
     closeNextStagePrompt();
     stageTransition.dismissedAtDoor = true;
     openNextStagePrompt();
@@ -2621,6 +2754,7 @@ function checkDoorPassage() {
 
 function resetChallenge({ regenerateLayout = true } = {}) {
   if (regenerateLayout) initializeStageEntities(activeStage, true);
+  resetBossState();
   const savedStage = teacherStages.find((stage) => stage.id === activeStage.id);
   if (savedStage?.completed) {
     savedStage.completed = false;
@@ -2770,7 +2904,7 @@ function update(delta) {
   });
   learningMonster = learningMonsters[0] || learningMonster;
   enforceVillageSafety();
-  const movementLocked = monsterQuizOpen || automaticRest.active || stageTransition.promptOpen || !restartPrompt.hidden || energy.current === 0 || now < wrongContact.moveLockUntil;
+  const movementLocked = monsterQuizOpen || bossState.active || automaticRest.active || stageTransition.promptOpen || !restartPrompt.hidden || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;

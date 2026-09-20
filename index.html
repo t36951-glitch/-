@@ -117,6 +117,18 @@
           <div id="hint-current" class="hint-current">첫 번째 글자는 ‘사’예요.</div>
         </div>
       </section>
+      <section id="boss-overlay" class="boss-overlay" aria-live="polite" hidden>
+        <div class="boss-card">
+          <div class="boss-badge">15단계 학습 보스</div>
+          <h2 id="boss-question">사과에서 첫 번째 글자는?</h2>
+          <div class="boss-hp-label">보스 HP: <strong id="boss-hp-value">7 / 7</strong></div>
+          <div class="boss-hp-track"><i id="boss-hp-fill"></i></div>
+          <canvas id="boss-writing-canvas" width="520" height="180" aria-label="답안 필기 영역"></canvas>
+          <div class="boss-actions"><button id="boss-clear" type="button">지우기</button><button id="boss-check" type="button">정답 확인</button><button id="boss-hint" type="button">힌트</button></div>
+          <div id="boss-choices" class="monster-choices boss-choices"></div>
+          <p id="boss-feedback" class="monster-feedback"></p>
+        </div>
+      </section>
       <section id="monster-overlay" class="monster-overlay" aria-live="polite" hidden>
         <div class="monster-quiz-card">
           <div class="monster-quiz-badge">글자 몬스터 문제</div>
