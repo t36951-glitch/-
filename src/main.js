@@ -133,6 +133,13 @@ function loadTeacherStages() {
       stages.push(normalizeStage({ ...DEFAULT_BATCHIM_STAGE, id: 'stage-16', locked: true, active: false }));
       addedBossStage = true;
     }
+    const bossStage = stages.find((stage) => stage.stageNumber === 15);
+    if (bossStage) {
+      bossStage.locked = false;
+      bossStage.bossReserved = true;
+      bossStage.stageType = 'boss';
+      bossStage.stageGroup = '초성 복습';
+    }
     let activeFound = false;
     stages.forEach((stage) => {
       if (stage.active && !stage.locked && !activeFound) activeFound = true;
@@ -225,6 +232,7 @@ function createLearningMonster(id, x, y, protectedLetterIndex = null) {
   return {
     id, x, y, protectedLetterIndex, isAdditional: protectedLetterIndex === null,
     resolved: false, wobble: 0, hp: 3, maxHp: 3, state: 'idle',
+    hasParticipatedInCombat: false, hasTakenDamage: false, isPurified: false, isDefeated: false,
     warningUntil: 0, nextAttackAt: 0, attackActiveUntil: 0, attackToken: 0,
     defeatStartedAt: 0, quizResolved: false, outOfRangeSince: 0, recoveryElapsed: 0
   };
@@ -790,7 +798,7 @@ function showTeacherEditor(stage) {
 }
 
 function stageStatusLabel(stage) {
-  if (stage.stageNumber === 15) return '보스 준비 중';
+  if (stage.stageNumber === 15) return stage.locked ? '보스 준비 중' : '플레이 가능';
   if (!stage.word) return '내용 없음';
   if (stage.active) return '현재 플레이 중';
   if (stage.locked) return '잠김';
@@ -1252,7 +1260,7 @@ function resetBossState() {
 function completeBossQuestion() {
   bossState.active = false;
   bossOverlay.hidden = true;
-  learningMonsters.forEach((monster) => { monster.resolved = true; monster.state = 'friend'; monster.warningUntil = 0; monster.attackActiveUntil = 0; });
+  learningMonsters.forEach((monster) => { monster.resolved = true; monster.isPurified = true; monster.isDefeated = true; monster.state = 'friend'; monster.warningUntil = 0; monster.attackActiveUntil = 0; });
   const nextStage = teacherStages.find((stage) => stage.stageNumber === 16);
   if (nextStage) nextStage.locked = false;
   const units = currentLearningUnits();
@@ -1524,7 +1532,9 @@ function updateAutomaticRest(delta) {
   restCountdown.hidden = true;
   energy.current = MAX_ENERGY;
   learningMonsters.forEach((monster) => {
-    monster.hp = Math.ceil(monster.maxHp / 2);
+    if (monster.hasParticipatedInCombat && monster.hasTakenDamage && !monster.isPurified && !monster.isDefeated && !monster.resolved && monster.hp > 0) {
+      monster.hp = Math.max(monster.hp, Math.ceil(monster.maxHp * 2 / 3));
+    }
     monster.recoveryElapsed = 0;
     monster.outOfRangeSince = 0;
     monster.state = 'idle';
@@ -1629,10 +1639,14 @@ function dropMonsterReward(monster = learningMonster) {
 
 function damageTrainingMonster(monster = learningMonster, amount = 1) {
   if (isBossStage() || monster.resolved || monster.hp <= 0) return false;
+  monster.hasParticipatedInCombat = true;
+  monster.hasTakenDamage = true;
   monster.hp = Math.max(0, monster.hp - amount);
   monster.wobble = 1;
   addCombatEffect(monster.x, monster.y, 'hit');
   if (monster.hp === 0) {
+    monster.isDefeated = true;
+    monster.isPurified = true;
     monster.resolved = true;
     monster.state = 'friend';
     const protectedItem = monster.protectedLetterIndex === null ? null : letterItems[monster.protectedLetterIndex];
@@ -2684,7 +2698,9 @@ function openNextStagePrompt() {
     stageTransition.nextStage = null;
     stageTransition.promptOpen = true;
     nextStageTitle.textContent = '다음 스테이지 안내';
-    nextStageMessage.textContent = '다음 스테이지가 아직 준비되지 않았어요.';
+    nextStageMessage.textContent = nextStageNumber === 15
+      ? '15단계 보스 콘텐츠를 불러오지 못했어요. 교사용 설정에서 15단계를 확인해 주세요.'
+      : '다음 스테이지가 아직 준비되지 않았어요.';
     nextStageYesButton.hidden = true;
     nextStageNoButton.textContent = '확인';
   } else {
@@ -2801,6 +2817,10 @@ function resetChallenge({ regenerateLayout = true } = {}) {
     learningMonster.attackActiveUntil = 0;
     learningMonster.attackToken = 0;
     learningMonster.defeatStartedAt = 0;
+    learningMonster.hasParticipatedInCombat = false;
+    learningMonster.hasTakenDamage = false;
+    learningMonster.isPurified = false;
+    learningMonster.isDefeated = false;
     learningMonster.quizResolved = false;
     learningMonster.outOfRangeSince = 0;
     learningMonster.recoveryElapsed = 0;
