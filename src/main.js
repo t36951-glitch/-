@@ -801,13 +801,28 @@ function renderTeacherStageList() {
 
 function applyBulkLearningMode() {
   const selectedMode = document.querySelector('input[name="teacher-bulk-learning-mode"]:checked')?.value || 'syllable';
-  if (!window.confirm('선택한 학습 방식을 1~14단계에 적용할까요?\n기존 학습 방식이 변경됩니다.\n목표 단어와 힌트 문장은 변경되지 않습니다.')) return;
+  if (!window.confirm('선택한 학습 방식을 전체 스테이지에 적용할까요?\n\n학습 방식이 변경되면 현재 모험 진행 상황과 현재 스테이지 수집 진행도가 초기화됩니다.\n완료한 단어, 칭호, 아이템, 캐릭터 정보는 유지됩니다.')) return;
   teacherStages.forEach((stage) => {
-    if (!stage.bossReserved && stage.stageType !== 'boss') stage.learningMode = selectedMode;
+    if (!stage.bossReserved && stage.stageType !== 'boss') {
+      stage.learningMode = selectedMode;
+      stage.completed = false;
+    }
   });
+  const firstStage = teacherStages.find((stage) => stage.stageNumber === 1 && stage.displayWord && stage.syllables.length);
+  if (firstStage) {
+    firstStage.locked = false;
+    teacherStages.forEach((stage) => { stage.active = stage.id === firstStage.id; });
+  }
   persistTeacherStages();
   renderTeacherStageList();
-  teacherListFeedback.textContent = '1~14단계의 학습 방식이 변경되었어요.';
+  closeTeacherSettings();
+  if (firstStage) {
+    applyStage(firstStage, { regenerateLayout: true });
+    gameStarted = true;
+    startScreen.hidden = true;
+    persistProfile();
+  }
+  showNotice('학습 방식이 변경되었습니다.\n새로운 방식으로 1단계부터 다시 시작합니다.', 3600);
 }
 
 function openTeacherSettings() {
@@ -883,12 +898,7 @@ function applyStageUi() {
   successMessageEl.textContent = '글자를 모아 문을 통과했어요.';
   successRestartButton.hidden = true;
   successContinueButton.hidden = true;
-  document.querySelector('#monster-question').textContent = `${word}의 첫 번째 학습 단위는 무엇일까요?`;
-  const choices = [activeStage.syllables[0], activeStage.syllables[1] || '나', activeStage.syllables[2] || '다'];
-  monsterChoiceButtons.forEach((button, index) => {
-    button.dataset.answer = choices[index];
-    button.textContent = choices[index];
-  });
+  updateLearningQuizUi();
   updateCollectionHud();
 }
 
@@ -1046,6 +1056,18 @@ function currentHintMessage() {
   return collectedLetters.length === 0 ? `첫 번째 학습 단위는 ${prefix}예요.` : `다음 학습 단위는 ${prefix}예요.`;
 }
 
+function updateLearningQuizUi() {
+  const units = currentLearningUnits();
+  const current = currentLearningUnit();
+  const position = Math.min(collectedLetters.length + 1, units.length || 1);
+  document.querySelector('#monster-question').textContent = `${activeStageWord()}의 ${position}번째 학습 단위는 무엇일까요?`;
+  const choices = [...new Set([current?.label, ...units.map((unit) => unit.label), '나', '다'].filter(Boolean))].slice(0, 3);
+  monsterChoiceButtons.forEach((button, index) => {
+    button.dataset.answer = choices[index] || '나';
+    button.textContent = choices[index] || '나';
+  });
+}
+
 function updateCollectionHud() {
   const units = currentLearningUnits();
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
@@ -1054,6 +1076,7 @@ function updateCollectionHud() {
   wordStateEl.textContent = challenge.status === 'complete' ? `${activeStageWord()} 완성!` : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
   wordStateEl.classList.remove('is-wrong');
+  updateLearningQuizUi();
   updateEnergyHud();
 }
 
@@ -1091,7 +1114,7 @@ function setMonsterChoicesDisabled(disabled) {
 }
 
 function openMonsterQuiz(monster = learningMonster) {
-  if (monster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
+  if (isPlayerInVillage() || monster.resolved || automaticRest.active || energy.current === 0 || monsterQuizOpen) return;
   quizTargetMonster = monster;
   monsterQuizOpen = true;
   monsterAnswerCooldownUntil = 0;
@@ -1104,7 +1127,7 @@ function openMonsterQuiz(monster = learningMonster) {
 }
 
 function checkMonsterProximity() {
-  if (automaticRest.active || restState.promptOpen || !restartPrompt.hidden || energy.current === 0 || monsterQuizOpen) return;
+  if (isPlayerInVillage() || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || energy.current === 0 || monsterQuizOpen) return;
   const footY = player.y + player.footOffsetY;
   const nearby = learningMonsters.find((monster) => !monster.resolved && !monster.quizResolved && Math.hypot(player.x - monster.x, footY - monster.y) <= player.radius + 75);
   if (nearby) openMonsterQuiz(nearby);
@@ -1113,7 +1136,7 @@ function checkMonsterProximity() {
 function answerMonster(answer) {
   const now = performance.now();
   if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
-  if (answer === currentLearningUnits()[0]?.label) {
+  if (answer === currentLearningUnit()?.label) {
     quizTargetMonster.quizResolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
@@ -1514,7 +1537,7 @@ function queueProjectile(type) {
 
 function useBasicAttack() {
   const now = performance.now();
-  if (!gameStarted || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
+  if (!gameStarted || isPlayerInVillage() || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
   attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
     const target = learningMonsters.find((monster) => !monster.resolved && Math.hypot(player.x - monster.x, player.y + player.footOffsetY - monster.y) <= 125 && isTargetInAttackDirection(monster));
@@ -1811,6 +1834,24 @@ function fieldRegionAt(x, y) {
     : FIELD_REGIONS.find((region) => region.id === 'playground');
 }
 
+function isPlayerInVillage() {
+  return fieldRegionAt(player.x, player.y + player.footOffsetY)?.id === 'village';
+}
+
+function enforceVillageSafety() {
+  if (!isPlayerInVillage()) return false;
+  learningMonsters.forEach((monster) => disengageTrainingMonster(monster));
+  combat.inCombat = false;
+  combat.lastDamageAt = 0;
+  attackState.projectiles.length = 0;
+  monsterQuizOpen = false;
+  monsterOverlay.hidden = true;
+  setMonsterChoicesDisabled(false);
+  monsterAnswerCooldownUntil = 0;
+  window.clearTimeout(monsterUnlockTimer);
+  return true;
+}
+
 function updateFieldRegion() {
   const region = fieldRegionAt(player.x, player.y + player.footOffsetY);
   if (!region || region.id === currentRegionId) return;
@@ -2104,7 +2145,7 @@ function canMoveTo(x, y) {
 }
 
 function applyTrainingMonsterAttack() {
-  if (learningMonster.resolved || automaticRest.active) return;
+  if (isPlayerInVillage() || learningMonster.resolved || automaticRest.active) return;
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > MONSTER_MELEE_RANGE) return;
   combat.lastDamageAt = performance.now();
@@ -2137,7 +2178,7 @@ function updateCombatRecovery(delta) {
 }
 
 function updateTrainingMonster() {
-  if (learningMonster.resolved || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || monsterQuizOpen) return;
+  if (isPlayerInVillage() || learningMonster.resolved || automaticRest.active || restState.promptOpen || !restartPrompt.hidden || monsterQuizOpen) return;
   const now = performance.now();
   const distance = Math.hypot(player.x - learningMonster.x, player.y + player.footOffsetY - learningMonster.y);
   if (distance > MONSTER_DETECTION_RANGE) {
@@ -2728,6 +2769,7 @@ function update(delta) {
     updateTrainingMonsterRecovery(delta);
   });
   learningMonster = learningMonsters[0] || learningMonster;
+  enforceVillageSafety();
   const movementLocked = monsterQuizOpen || automaticRest.active || stageTransition.promptOpen || !restartPrompt.hidden || energy.current === 0 || now < wrongContact.moveLockUntil;
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
@@ -2740,6 +2782,7 @@ function update(delta) {
     if (Math.abs(dir.x) > Math.abs(dir.y)) player.facing = dir.x > 0 ? 'right' : 'left';
     else player.facing = dir.y > 0 ? 'down' : 'up';
   } else player.bob *= 0.85;
+  enforceVillageSafety();
   if (!automaticRest.active && energy.current > 0) collectNearbyLetter();
   checkTreasureChest();
   if (challenge.status === 'complete' && !challenge.doorOpen) completeWord();
