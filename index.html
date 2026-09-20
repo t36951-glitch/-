@@ -72,16 +72,18 @@
         <div class="teacher-card">
           <div class="teacher-header"><div><p class="teacher-kicker">교사용 설정</p><h2>스테이지를 준비해요</h2></div><button id="teacher-close" class="hint-close" type="button">닫기</button></div>
           <div id="teacher-list-view" class="teacher-list-view">
-            <div class="teacher-list-toolbar"><h3>저장된 스테이지 1~14</h3><div class="teacher-toolbar-actions"><button id="teacher-apply-defaults" class="menu-action" type="button">14개 기본 콘텐츠 적용</button><button id="teacher-new-list" class="menu-action" type="button">새 스테이지</button></div></div>
+            <div class="teacher-list-toolbar"><h3>저장된 스테이지 1~14</h3><div class="teacher-toolbar-actions"><button id="teacher-new-list" class="menu-action" type="button">새 스테이지</button></div></div>
             <div class="teacher-bulk-mode"><strong>전체 학습 방식</strong><label><input type="radio" name="teacher-bulk-learning-mode" value="syllable" checked> 음절 모드</label><label><input type="radio" name="teacher-bulk-learning-mode" value="jamo"> 자음·모음 모드</label><button id="teacher-apply-learning-mode" class="menu-action" type="button">전체 스테이지에 적용</button></div>
             <p id="teacher-list-feedback" class="teacher-feedback" role="status"></p>
             <div id="teacher-stage-list" class="teacher-stage-list"></div>
           </div>
           <div id="teacher-editor-view" class="teacher-editor-view" hidden>
             <div class="teacher-form">
-              <label>스테이지 번호<input id="teacher-stage-number" type="number" min="1" max="14" value="1" readonly></label>
+              <label>스테이지 번호<input id="teacher-stage-number" type="number" min="1" max="99" value="1" readonly></label>
               <label>목표 단어<input id="teacher-word" type="text" maxlength="12" value="사과" placeholder="예: 나비"></label>
               <label>학습 방식<select id="teacher-learning-mode"><option value="syllable">음절 모드</option><option value="jamo">자음·모음 모드</option></select></label>
+              <label>학습 그룹<select id="teacher-stage-group"><option value="초성 학습">초성 학습</option><option value="초성 복습">초성 복습</option><option value="받침 학습">받침 학습</option><option value="받침 복습">받침 복습</option><option value="문장 학습 준비">문장 학습 준비</option></select></label>
+              <label>스테이지 유형<select id="teacher-stage-type"><option value="normal">일반 학습</option><option value="review">복습</option><option value="preparing">준비 중</option></select></label>
               <label>힌트 문장<textarea id="teacher-hint" rows="3">빨갛고 맛있는 과일이에요.</textarea></label>
               <label>스테이지 상태<select id="teacher-status"><option value="locked">잠김</option><option value="playable">플레이 가능</option><option value="current">현재 스테이지</option></select></label>
               <div class="teacher-placeholder"><strong>힌트 이미지</strong><small>기존 이미지 영역을 연결할 자리입니다.</small></div>

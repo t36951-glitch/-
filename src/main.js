@@ -31,7 +31,8 @@ const DEFAULT_STAGE = {
   id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
   hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
 };
-const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '', displayWord: '', syllables: [], learningMode: 'boss', consonant: '', hint: '', locked: true, active: false, protected: false, bossReserved: true };
+const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '', displayWord: '', syllables: [], learningMode: 'boss', consonant: '', hint: '', locked: true, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01' };
+const DEFAULT_BATCHIM_STAGE = { stageNumber: 16, consonant: 'ㄱ', word: '국', syllables: ['국'], hint: '따뜻하게 먹는 음식이에요.', learningMode: 'syllable', stageGroup: '받침 학습', stageType: 'normal', mapId: 'batchim-field-01', villageId: 'batchim-village', monsterSetId: 'batchim-monster-01' };
 const DEFAULT_CONSONANT_STAGES = [
   { stageNumber: 1, consonant: 'ㄱ', word: '가방', syllables: ['가', '방'], hint: '물건을 넣고 다니는 것이에요.' },
   { stageNumber: 2, consonant: 'ㄴ', word: '나비', syllables: ['나', '비'], hint: '날아다니는 예쁜 곤충이에요.' },
@@ -53,6 +54,31 @@ function splitHangulSyllables(value) {
   return Array.from(String(value || '').replace(/\s+/g, '')).filter((character) => /^[가-힣]$/.test(character));
 }
 
+const HANGUL_INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+const HANGUL_MEDIALS = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'];
+const HANGUL_FINALS = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+
+function learningUnitsForStage(stage) {
+  if (stage.learningMode !== 'jamo') {
+    return stage.syllables.map((character, index) => ({ id: `unit-${index}`, character, label: character, kind: 'syllable', syllableIndex: index }));
+  }
+  const units = [];
+  stage.syllables.forEach((syllable, syllableIndex) => {
+    const code = syllable.charCodeAt(0) - 0xac00;
+    if (code < 0 || code > 11171) {
+      units.push({ id: `unit-${units.length}`, character: syllable, label: syllable, kind: 'syllable', syllableIndex });
+      return;
+    }
+    const initial = Math.floor(code / 588);
+    const medial = Math.floor((code % 588) / 28);
+    const final = code % 28;
+    units.push({ id: `unit-${units.length}`, character: HANGUL_INITIALS[initial], label: HANGUL_INITIALS[initial], kind: 'initial', syllableIndex });
+    units.push({ id: `unit-${units.length}`, character: HANGUL_MEDIALS[medial], label: HANGUL_MEDIALS[medial], kind: 'medial', syllableIndex });
+    if (HANGUL_FINALS[final]) units.push({ id: `unit-${units.length}`, character: HANGUL_FINALS[final], label: HANGUL_FINALS[final], kind: 'final', syllableIndex });
+  });
+  return units;
+}
+
 function normalizeStage(raw = {}) {
   const displayWord = String(raw.displayWord ?? raw.word ?? '').trim();
   const syllables = Array.isArray(raw.syllables) && raw.syllables.length
@@ -72,6 +98,11 @@ function normalizeStage(raw = {}) {
     syllables: safeSyllables,
     learningMode: raw.bossReserved ? 'boss' : raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
     bossReserved: Boolean(raw.bossReserved),
+    stageGroup: String(raw.stageGroup || (raw.bossReserved ? '초성 복습' : Number(raw.stageNumber) >= 16 ? '받침 학습' : Number(raw.stageNumber) === 7 ? '초성 복습' : '초성 학습')),
+    stageType: String(raw.stageType || (raw.bossReserved ? 'boss' : 'normal')),
+    mapId: String(raw.mapId || (raw.bossReserved ? 'boss-field-01' : Number(raw.stageNumber) >= 16 ? 'batchim-field-01' : 'field-main')),
+    villageId: String(raw.villageId || (raw.bossReserved ? 'sparkle-village' : Number(raw.stageNumber) >= 16 ? 'batchim-village' : 'sparkle-village')),
+    monsterSetId: String(raw.monsterSetId || (raw.bossReserved ? 'boss-monster-01' : Number(raw.stageNumber) >= 16 ? 'batchim-monster-01' : 'training-monsters')),
     consonant: String(raw.consonant || DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === Number(raw.stageNumber))?.consonant || (isDefault ? DEFAULT_STAGE.consonant : '')),
     hint: hint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
@@ -96,6 +127,10 @@ function loadTeacherStages() {
     let addedBossStage = false;
     if (!stages.some((stage) => stage.stageNumber === 15)) {
       stages.push(normalizeStage(BOSS_STAGE));
+      addedBossStage = true;
+    }
+    if (!stages.some((stage) => stage.stageNumber === 16)) {
+      stages.push(normalizeStage({ ...DEFAULT_BATCHIM_STAGE, id: 'stage-16', locked: true, active: false }));
       addedBossStage = true;
     }
     let activeFound = false;
@@ -132,10 +167,13 @@ function persistStageLayouts() {
   try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(stageLayouts)); } catch (error) { /* localStorage may be unavailable */ }
 }
 
-function createLetterItems(syllables, positions = []) {
-  return syllables.map((character, index) => ({
+function createLetterItems(units, positions = []) {
+  return units.map((unit, index) => ({
     id: `stage-letter-${index}`,
-    character,
+    character: unit.label,
+    unitId: unit.id,
+    unitKind: unit.kind,
+    unitSyllableIndex: unit.syllableIndex,
     x: positions[index]?.x ?? 720 + index * 120,
     y: positions[index]?.y ?? 430 + index * 80,
     protectedMonsterId: `protected-monster-${index}`,
@@ -172,7 +210,8 @@ const monsterReward = {
   dropped: false,
   wobble: 0,
   sparkle: 0,
-  source: 'monster-reward'
+  source: 'monster-reward',
+  unitId: ''
 };
 const rewardState = { nonSyllableStreak: 0 };
 
@@ -283,12 +322,13 @@ const teacherCloseButton = document.querySelector('#teacher-close');
 const teacherListView = document.querySelector('#teacher-list-view');
 const teacherEditorView = document.querySelector('#teacher-editor-view');
 const teacherNewListButton = document.querySelector('#teacher-new-list');
-const teacherApplyDefaultsButton = document.querySelector('#teacher-apply-defaults');
 const teacherApplyLearningModeButton = document.querySelector('#teacher-apply-learning-mode');
 const teacherListFeedback = document.querySelector('#teacher-list-feedback');
 const teacherStageNumber = document.querySelector('#teacher-stage-number');
 const teacherWordInput = document.querySelector('#teacher-word');
 const teacherLearningMode = document.querySelector('#teacher-learning-mode');
+const teacherStageGroup = document.querySelector('#teacher-stage-group');
+const teacherStageType = document.querySelector('#teacher-stage-type');
 const teacherHintInput = document.querySelector('#teacher-hint');
 const teacherStatusInput = document.querySelector('#teacher-status');
 const teacherSyllablePreview = document.querySelector('#teacher-syllable-preview');
@@ -436,9 +476,9 @@ function currentSkillName() {
 }
 
 function currentSkillHintMessage() {
-  const next = activeStage.syllables[collectedLetters.length];
-  if (!next) return `${activeStageWord()} 글자를 모두 모았어요!`;
-  return collectedLetters.length === 0 ? `첫 번째 글자는 ${next}예요.` : `다음 글자는 ${next}예요.`;
+  const next = currentLearningUnit();
+  if (!next) return `${activeStageWord()} 학습을 모두 마쳤어요!`;
+  return collectedLetters.length === 0 ? `첫 번째 학습 단위는 ${next.label}예요.` : `다음 학습 단위는 ${next.label}예요.`;
 }
 
 function resetSkillState() {
@@ -565,10 +605,11 @@ function renderArchive(kind) {
   closeMenu();
   archiveTitleEl.textContent = kind === 'letters' ? '글자 보관함' : kind === 'words' ? '단어 창고' : kind === 'titles' ? '칭호 목록' : '아이템 창고';
   if (kind === 'letters') {
+    const units = currentLearningUnits();
     const collected = collectedLetters.length ? collectedLetters.join(' + ') : '아직 없어요';
-    const remaining = activeStage.syllables.filter((character, index) => collectedLetters[index] !== character).join(' + ') || '없음';
-    const progress = Math.round(collectedLetters.length / activeStage.syllables.length * 100);
-    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${activeStageWord()}</strong></div><div>수집한 음절: <strong>${collected}</strong></div><div>남은 음절: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${activeStage.syllables.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
+    const remaining = units.slice(collectedLetters.length).map((unit) => unit.label).join(' + ') || '없음';
+    const progress = Math.round(collectedLetters.length / units.length * 100);
+    archiveContentEl.innerHTML = `<div class="archive-summary"><div>목표 단어: <strong>${activeStageWord()}</strong></div><div>수집한 학습 단위: <strong>${collected}</strong></div><div>남은 학습 단위: <strong>${remaining}</strong></div><div>진행률: <strong>${collectedLetters.length}/${units.length}</strong></div><div class="archive-progress"><i style="width:${progress}%"></i></div></div>`;
     return;
   }
   if (kind === 'words') {
@@ -717,7 +758,9 @@ function fillTeacherForm(stage) {
   editingTeacherStageId = normalized.id;
   teacherStageNumber.value = normalized.stageNumber;
   teacherWordInput.value = normalized.displayWord || normalized.word;
-  teacherLearningMode.value = normalized.learningMode;
+  teacherLearningMode.value = normalized.learningMode === 'jamo' ? 'jamo' : 'syllable';
+  teacherStageGroup.value = normalized.stageGroup;
+  teacherStageType.value = normalized.stageType === 'review' || normalized.stageType === 'preparing' ? normalized.stageType : 'normal';
   teacherHintInput.value = normalized.hint;
   teacherStatusInput.value = normalized.active ? 'current' : normalized.locked ? 'locked' : 'playable';
   updateTeacherPreview();
@@ -744,12 +787,15 @@ function stageStatusLabel(stage) {
 }
 
 function renderTeacherStageList() {
-  const ordered = Array.from({ length: 15 }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
-  teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => {
+  const maxStageNumber = Math.max(16, ...teacherStages.map((stage) => stage.stageNumber));
+  const ordered = Array.from({ length: maxStageNumber }, (_, index) => teacherStages.find((stage) => stage.stageNumber === index + 1) || normalizeStage({ id: `stage-${index + 1}`, stageNumber: index + 1, word: '', displayWord: '', syllables: [], locked: index > 0, active: index === 0, protected: index === 0 }));
+  teacherStageList.innerHTML = `<div class="teacher-stage-table"><div class="teacher-stage-row teacher-stage-head"><strong>단계</strong><strong>그룹</strong><strong>유형</strong><strong>목표 단어</strong><strong>힌트 문장</strong><strong>학습 방식</strong><strong>상태</strong><strong>기능</strong></div>${ordered.map((stage) => {
     const isBoss = stage.stageNumber === 15;
     const word = isBoss ? '보스 스테이지' : stage.displayWord || stage.word || '—';
+    const group = isBoss ? '초성 복습' : stage.stageGroup;
+    const type = isBoss ? '보스' : stage.stageType === 'review' ? '복습' : stage.stageType === 'preparing' ? '준비 중' : '일반 학습';
     const mode = isBoss ? '별도 설정' : stage.learningMode === 'jamo' ? '자음·모음 모드' : '음절 모드';
-    return `<div class="teacher-stage-row ${isBoss ? 'is-boss-reserved' : ''}"><strong>${stage.stageNumber}</strong><span>${escapeHtml(word)}</span><span class="teacher-hint-cell">${escapeHtml(isBoss ? '보스 콘텐츠 준비 예정' : stage.hint || '—')}</span><span>${mode}</span><span class="teacher-status-badge ${isBoss ? 'is-boss' : stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions">${isBoss ? '<small>예약됨</small>' : `<button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}`}</span></div>`;
+    return `<div class="teacher-stage-row ${isBoss ? 'is-boss-reserved' : ''}"><strong>${stage.stageNumber}</strong><span>${escapeHtml(group)}</span><span>${escapeHtml(type)}</span><span>${escapeHtml(word)}</span><span class="teacher-hint-cell">${escapeHtml(isBoss ? '보스 콘텐츠 준비 예정' : stage.hint || '—')}</span><span>${mode}</span><span class="teacher-status-badge ${isBoss ? 'is-boss' : stage.active ? 'is-current' : stage.locked ? 'is-locked' : stage.word ? 'is-playable' : 'is-empty'}">${stageStatusLabel(stage)}</span><span class="teacher-stage-actions">${isBoss ? '<small>예약됨</small>' : `<button data-teacher-load="${stage.id}" type="button">편집</button>${stage.protected ? '<small>기본</small>' : `<button data-teacher-delete="${stage.id}" type="button">삭제</button>`}`}</span></div>`;
   }).join('')}</div>`;
 }
 
@@ -757,35 +803,11 @@ function applyBulkLearningMode() {
   const selectedMode = document.querySelector('input[name="teacher-bulk-learning-mode"]:checked')?.value || 'syllable';
   if (!window.confirm('선택한 학습 방식을 1~14단계에 적용할까요?\n기존 학습 방식이 변경됩니다.\n목표 단어와 힌트 문장은 변경되지 않습니다.')) return;
   teacherStages.forEach((stage) => {
-    if (stage.stageNumber >= 1 && stage.stageNumber <= 14) stage.learningMode = selectedMode;
+    if (!stage.bossReserved && stage.stageType !== 'boss') stage.learningMode = selectedMode;
   });
   persistTeacherStages();
   renderTeacherStageList();
   teacherListFeedback.textContent = '1~14단계의 학습 방식이 변경되었어요.';
-}
-
-function applyDefaultConsonantStages() {
-  if (!window.confirm('14개 기본 학습 콘텐츠를 적용할까요?\n기존에 저장된 내용은 변경되지 않습니다.')) return;
-  DEFAULT_CONSONANT_STAGES.forEach((defaultStage, index) => {
-    const existing = teacherStages.find((stage) => stage.stageNumber === defaultStage.stageNumber);
-    if (existing?.displayWord) return;
-    const replacement = normalizeStage({
-      ...defaultStage,
-      id: existing?.id || `stage-${defaultStage.stageNumber}`,
-      active: existing?.active || index === 0,
-      locked: existing?.locked === true ? true : false,
-      protected: existing?.protected || defaultStage.stageNumber === 1
-    });
-    if (existing) Object.assign(existing, replacement);
-    else teacherStages.push(replacement);
-  });
-  if (!teacherStages.some((stage) => stage.active && !stage.locked)) {
-    const first = teacherStages.find((stage) => stage.stageNumber === 1);
-    if (first) { first.active = true; first.locked = false; }
-  }
-  persistTeacherStages();
-  renderTeacherStageList();
-  teacherListFeedback.textContent = '비어 있던 스테이지에 기본 자음 학습 콘텐츠를 적용했어요.';
 }
 
 function openTeacherSettings() {
@@ -819,6 +841,8 @@ function saveTeacherStage() {
     word: displayWord || DEFAULT_STAGE.word,
     syllables: syllables.slice(0, 6),
     learningMode: teacherLearningMode.value,
+    stageGroup: teacherStageGroup.value,
+    stageType: teacherStageType.value,
     hint: teacherHintInput.value,
     locked: status === 'locked',
     active: status === 'current',
@@ -859,7 +883,7 @@ function applyStageUi() {
   successMessageEl.textContent = '글자를 모아 문을 통과했어요.';
   successRestartButton.hidden = true;
   successContinueButton.hidden = true;
-  document.querySelector('#monster-question').textContent = `${word}의 첫 번째 음절은 무엇일까요?`;
+  document.querySelector('#monster-question').textContent = `${word}의 첫 번째 학습 단위는 무엇일까요?`;
   const choices = [activeStage.syllables[0], activeStage.syllables[1] || '나', activeStage.syllables[2] || '다'];
   monsterChoiceButtons.forEach((button, index) => {
     button.dataset.answer = choices[index];
@@ -890,23 +914,22 @@ function startTeacherStage() {
 
 teacherSettingsButton.addEventListener('click', openTeacherSettings);
 teacherCloseButton.addEventListener('click', closeTeacherSettings);
-teacherApplyDefaultsButton.addEventListener('click', applyDefaultConsonantStages);
 teacherApplyLearningModeButton.addEventListener('click', applyBulkLearningMode);
 teacherNewListButton.addEventListener('click', () => {
   const usedNumbers = new Set(teacherStages.map((stage) => stage.stageNumber));
-  const stageNumber = Array.from({ length: 14 }, (_, index) => index + 1).find((number) => {
+  const emptyStageNumber = Array.from({ length: 14 }, (_, index) => index + 1).find((number) => {
     const stage = teacherStages.find((candidate) => candidate.stageNumber === number);
     return !stage || !stage.displayWord;
   });
-  if (!stageNumber) {
-    teacherListFeedback.textContent = '1~14단계가 모두 준비되어 있어요.\n15단계는 보스 스테이지로 준비할 예정이에요.';
-    return;
-  }
+  const highestStageNumber = Math.max(15, ...teacherStages.map((stage) => stage.stageNumber));
+  const stageNumber = emptyStageNumber || Math.max(16, highestStageNumber + 1);
   const emptyStage = teacherStages.find((stage) => stage.stageNumber === stageNumber);
-  showTeacherEditor(emptyStage || normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: false, hint: '' }));
+  showTeacherEditor(emptyStage || normalizeStage({ id: `stage-${Date.now()}`, stageNumber, displayWord: '', word: '', syllables: [], active: false, locked: true, hint: '', stageGroup: '받침 학습', stageType: 'normal', learningMode: 'syllable' }));
   teacherWordInput.value = '';
   teacherHintInput.value = '';
-  teacherStatusInput.value = 'playable';
+  teacherStatusInput.value = 'locked';
+  teacherStageGroup.value = stageNumber >= 16 ? '받침 학습' : teacherStageGroup.value;
+  teacherStageType.value = 'normal';
   teacherFeedback.textContent = '새 스테이지 내용을 입력해 주세요.';
   teacherListFeedback.textContent = '';
   updateTeacherPreview();
@@ -1008,16 +1031,26 @@ function activeStageWord() {
   return activeStage.displayWord || activeStage.word || activeStage.syllables.join('');
 }
 
+function currentLearningUnits() {
+  return learningUnitsForStage(activeStage);
+}
+
+function currentLearningUnit() {
+  return currentLearningUnits()[collectedLetters.length];
+}
+
 function currentHintMessage() {
-  const next = activeStage.syllables[collectedLetters.length];
-  if (!next) return `${activeStageWord()} 글자를 모두 모았어요!`;
-  return collectedLetters.length === 0 ? `첫 번째 글자는 ‘${next}’예요.` : `다음 글자는 ‘${next}’예요.`;
+  const next = currentLearningUnit();
+  if (!next) return `${activeStageWord()} 학습을 모두 마쳤어요!`;
+  const prefix = activeStage.learningMode === 'jamo' ? `${next.label}${next.kind === 'final' ? ' 받침' : next.kind === 'initial' ? ' 첫소리' : ''}` : `‘${next.label}’`;
+  return collectedLetters.length === 0 ? `첫 번째 학습 단위는 ${prefix}예요.` : `다음 학습 단위는 ${prefix}예요.`;
 }
 
 function updateCollectionHud() {
+  const units = currentLearningUnits();
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
-  letterCountEl.textContent = `${collectedLetters.length}/${activeStage.syllables.length}`;
-  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (activeStage.syllables[collectedLetters.length] || '없음');
+  letterCountEl.textContent = `${collectedLetters.length}/${units.length}`;
+  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (currentLearningUnit()?.label || '없음');
   wordStateEl.textContent = challenge.status === 'complete' ? `${activeStageWord()} 완성!` : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
   wordStateEl.classList.remove('is-wrong');
@@ -1080,7 +1113,7 @@ function checkMonsterProximity() {
 function answerMonster(answer) {
   const now = performance.now();
   if (!monsterQuizOpen || automaticRest.active || energy.current === 0 || now < monsterAnswerCooldownUntil) return;
-  if (answer === activeStage.syllables[0]) {
+  if (answer === currentLearningUnits()[0]?.label) {
     quizTargetMonster.quizResolved = true;
     monsterQuizOpen = false;
     monsterOverlay.hidden = true;
@@ -1133,7 +1166,8 @@ function useLearningSkill() {
     return;
   }
   if (profile.character === 'archer') {
-    const target = availableLetterItems().find((item) => !item.collected && item.character === activeStage.syllables[collectedLetters.length]);
+    const targetUnit = currentLearningUnit();
+    const target = availableLetterItems().find((item) => !item.collected && item.unitId === targetUnit?.id);
     const footY = player.y + player.footOffsetY;
     const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
     mp.current = Math.max(0, mp.current - 1);
@@ -1389,8 +1423,9 @@ function addCombatEffect(x, y, type = 'hit', direction = getFacingVector()) {
 
 function dropMonsterReward(monster = learningMonster) {
   if (monsterReward.active && !monsterReward.collected) return;
-  const neededCharacter = activeStage.syllables[collectedLetters.length];
-  const targetItem = letterItems.find((item) => item.character === neededCharacter);
+  const neededUnit = currentLearningUnit();
+  const neededCharacter = neededUnit?.label;
+  const targetItem = letterItems.find((item) => item.unitId === neededUnit?.id);
   const targetProtector = targetItem?.protectedMonsterId ? learningMonsters.find((candidate) => candidate.id === targetItem.protectedMonsterId) : null;
   const needsSyllable = Boolean(neededCharacter && !collectedLetters.includes(neededCharacter) && targetItem?.unlocked && targetProtector?.resolved);
   let type;
@@ -1406,6 +1441,7 @@ function dropMonsterReward(monster = learningMonster) {
   if (type === 'none') {
     monsterReward.type = 'none';
     monsterReward.character = '';
+    monsterReward.unitId = '';
     monsterReward.active = false;
     monsterReward.collected = true;
     monsterReward.dropped = false;
@@ -1414,9 +1450,10 @@ function dropMonsterReward(monster = learningMonster) {
   }
   monsterReward.type = type;
   monsterReward.character = type === 'syllable' ? neededCharacter : '';
+  monsterReward.unitId = type === 'syllable' ? neededUnit?.id || '' : '';
   if (type === 'syllable') {
     rewardState.nonSyllableStreak = 0;
-    const mapItem = letterItems.find((item) => item.character === neededCharacter);
+    const mapItem = letterItems.find((item) => item.unitId === neededUnit?.id);
     if (mapItem) { mapItem.disabled = true; mapItem.collected = false; }
   } else {
     rewardState.nonSyllableStreak += 1;
@@ -1555,7 +1592,8 @@ function handleWrongLetterContact(item) {
 function collectNearbyLetter() {
   if (automaticRest.active || restState.promptOpen || energy.current === 0) return;
   const footY = player.y + player.footOffsetY;
-  const neededCharacter = activeStage.syllables[collectedLetters.length];
+  const neededUnit = currentLearningUnit();
+  const neededCharacter = neededUnit?.label;
   const item = availableLetterItems().find((candidate) => !candidate.collected && Math.hypot(player.x - candidate.x, footY - candidate.y) <= player.radius + 24);
   if (!item) {
     wrongContact.touchingItemId = null;
@@ -1569,7 +1607,7 @@ function collectNearbyLetter() {
       return;
     }
   }
-  if ((!isMonsterReward || monsterReward.type === 'syllable') && item.character !== neededCharacter) {
+  if ((!isMonsterReward || monsterReward.type === 'syllable') && item.unitId !== neededUnit?.id) {
     handleWrongLetterContact(item);
     return;
   }
@@ -1596,12 +1634,11 @@ function collectNearbyLetter() {
     if (!archiveState.collectedSyllables.includes(item.character)) archiveState.collectedSyllables.push(item.character);
     pickupEffects.push({ x: item.x, y: item.y, character: item.character, life: 1 });
     persistArchiveState();
-    if (item.character === '사') showNotice('잘했어요! 이제 ‘과’를 찾아보세요.', 2200);
-    else showLetterNotice(item.character);
+    showLetterNotice(item.character);
   }
   wrongContact.touchingItemId = null;
   updateCollectionHud();
-  if (collectedLetters.length === activeStage.syllables.length) completeWord();
+  if (collectedLetters.length === currentLearningUnits().length) completeWord();
 }
 
 function updatePickupEffects(delta) {
@@ -1864,7 +1901,8 @@ function createStageLayout(stage, regenerate = false) {
   const key = stage.id;
   const previous = stageLayouts[key];
   const nonce = regenerate ? Number(previous?.nonce || 0) + 1 : Number(previous?.nonce || 0);
-  if (!regenerate && previous?.letters?.length === stage.syllables.length && previous?.monsters?.length === stage.syllables.length + 3) return previous;
+  const units = learningUnitsForStage(stage);
+  if (!regenerate && previous?.letters?.length === units.length && previous?.monsters?.length === units.length + 3) return previous;
   const random = seededRandom(stageSeed(stage, nonce));
   const reserved = [];
   const letters = [];
@@ -1904,7 +1942,7 @@ function createStageLayout(stage, regenerate = false) {
     }
     return takePosition(150, [{ x: anchor.x, y: anchor.y, minDistance: 72 }]);
   };
-  stage.syllables.forEach((character, index) => {
+  units.forEach((unit, index) => {
     const letter = takePosition(190);
     letters.push({ x: letter.x, y: letter.y });
     const monster = takeNearbyPosition(letter);
@@ -1922,7 +1960,7 @@ function createStageLayout(stage, regenerate = false) {
 
 function initializeStageEntities(stage, regenerate = false) {
   const layout = createStageLayout(stage, regenerate);
-  letterItems = createLetterItems(stage.syllables, layout.letters);
+  letterItems = createLetterItems(learningUnitsForStage(stage), layout.letters);
   learningMonsters = layout.monsters.map((monster) => createLearningMonster(monster.id, monster.x, monster.y, monster.protectedLetterIndex));
   learningMonster = learningMonsters[0] || createLearningMonster('learning-monster-0', 1040, 1050);
 }
@@ -2271,7 +2309,7 @@ function drawLetterItem(item) {
   const now = performance.now();
   const footY = player.y + player.footOffsetY;
   const distance = Math.hypot(player.x - item.x, footY - item.y);
-  const isNeeded = item.character === activeStage.syllables[collectedLetters.length];
+  const isNeeded = item.unitId === currentLearningUnit()?.id;
   const isLocked = Boolean(item.protectedMonsterId && !item.unlocked);
   const isNeededNear = isNeeded && !isLocked && distance < 125;
   const isSkillFocused = item.id === skillState.focusItemId && now < skillState.focusUntil;
@@ -2555,6 +2593,7 @@ function resetChallenge({ regenerateLayout = true } = {}) {
   monsterReward.sparkle = 0;
   monsterReward.type = 'syllable';
   monsterReward.character = '사';
+  monsterReward.unitId = '';
   rewardState.nonSyllableStreak = 0;
   collectedLetters.length = 0;
   pickupEffects.length = 0;
