@@ -31,7 +31,7 @@ const DEFAULT_STAGE = {
   id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
   hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
 };
-const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '사과', displayWord: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ', hint: '목표 단어의 글자를 모두 맞혀 보세요.', locked: false, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01' };
+const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '사과', displayWord: '보스 스테이지', targetWord: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ', hint: '문제를 풀어 보스를 정화해요.', hintText: '문제를 풀어 보스를 정화해요.', locked: false, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', displayName: '보스 스테이지', isBossStage: true, isFixedStage: true, isDeletable: false, isEditable: false, isPlayable: true, status: 'playable', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01', bossQuestionWords: ['사과', '다리', '자동차'] };
 const DEFAULT_BATCHIM_STAGE = { stageNumber: 16, consonant: 'ㄱ', word: '국', syllables: ['국'], hint: '따뜻하게 먹는 음식이에요.', learningMode: 'syllable', stageGroup: '받침 학습', stageType: 'normal', mapId: 'batchim-field-01', villageId: 'batchim-village', monsterSetId: 'batchim-monster-01' };
 const DEFAULT_CONSONANT_STAGES = [
   { stageNumber: 1, consonant: 'ㄱ', word: '가방', syllables: ['가', '방'], hint: '물건을 넣고 다니는 것이에요.' },
@@ -80,21 +80,24 @@ function learningUnitsForStage(stage) {
 }
 
 function normalizeStage(raw = {}) {
-  const displayWord = String(raw.displayWord ?? raw.word ?? '').trim();
+  const displayWord = String(raw.targetWord ?? raw.word ?? (raw.bossReserved ? '' : raw.displayWord) ?? '').trim();
   const syllables = Array.isArray(raw.syllables) && raw.syllables.length
     ? raw.syllables.filter((character) => /^[가-힣]$/.test(character)).slice(0, 6)
     : splitHangulSyllables(displayWord).slice(0, 6);
   const isDefault = raw.id === DEFAULT_STAGE.id || raw.protected === true;
   const safeWord = displayWord || (isDefault ? DEFAULT_STAGE.word : '');
   const safeSyllables = syllables.length ? syllables : (isDefault ? [...DEFAULT_STAGE.syllables] : []);
-  const hint = raw.hint === '' ? DEFAULT_STAGE.hint : String(raw.hint ?? DEFAULT_STAGE.hint);
+  const hint = raw.hintText ?? raw.hint;
+  const safeHint = hint === '' ? DEFAULT_STAGE.hint : String(hint ?? DEFAULT_STAGE.hint);
   return {
     ...DEFAULT_STAGE,
     ...raw,
     id: raw.id || `stage-${Number(raw.stageNumber) || 1}`,
     stageNumber: Math.max(1, Number(raw.stageNumber) || 1),
     word: safeWord,
-    displayWord: safeWord,
+    displayWord: raw.displayName ? String(raw.displayName) : safeWord,
+    targetWord: safeWord,
+    displayName: raw.displayName || (raw.bossReserved ? '보스 스테이지' : safeWord),
     syllables: safeSyllables,
     learningMode: raw.bossReserved ? 'boss' : raw.learningMode === 'jamo' ? 'jamo' : 'syllable',
     bossReserved: Boolean(raw.bossReserved),
@@ -104,7 +107,8 @@ function normalizeStage(raw = {}) {
     villageId: String(raw.villageId || (raw.bossReserved ? 'sparkle-village' : Number(raw.stageNumber) >= 16 ? 'batchim-village' : 'sparkle-village')),
     monsterSetId: String(raw.monsterSetId || (raw.bossReserved ? 'boss-monster-01' : Number(raw.stageNumber) >= 16 ? 'batchim-monster-01' : 'training-monsters')),
     consonant: String(raw.consonant || DEFAULT_CONSONANT_STAGES.find((stage) => stage.stageNumber === Number(raw.stageNumber))?.consonant || (isDefault ? DEFAULT_STAGE.consonant : '')),
-    hint: hint || DEFAULT_STAGE.hint,
+    hint: safeHint || DEFAULT_STAGE.hint,
+    hintText: safeHint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
     active: raw.active === true,
     protected: raw.protected === true
@@ -135,10 +139,23 @@ function loadTeacherStages() {
     }
     const bossStage = stages.find((stage) => stage.stageNumber === 15);
     if (bossStage) {
+      const isTemporaryBoss = bossStage.targetWord === '보스 스테이지' || bossStage.word === '보스 스테이지' || bossStage.hintText === '보스 콘텐츠 준비 예정' || bossStage.hint === '보스 콘텐츠 준비 예정' || bossStage.learningMode === 'boss' || bossStage.learningMode === '별도 설정' || bossStage.status === '예약됨' || bossStage.status === '준비 중';
+      if (isTemporaryBoss) {
+        const repaired = normalizeStage({ ...BOSS_STAGE, id: bossStage.id });
+        Object.assign(bossStage, repaired);
+        addedBossStage = true;
+      }
       bossStage.locked = false;
       bossStage.bossReserved = true;
       bossStage.stageType = 'boss';
       bossStage.stageGroup = '초성 복습';
+      bossStage.displayName = '보스 스테이지';
+      bossStage.isBossStage = true;
+      bossStage.isFixedStage = true;
+      bossStage.isDeletable = false;
+      bossStage.isEditable = false;
+      bossStage.isPlayable = true;
+      bossStage.status = 'playable';
     }
     let activeFound = false;
     stages.forEach((stage) => {
@@ -1057,7 +1074,7 @@ function updateEnergyHud() {
 }
 
 function activeStageWord() {
-  return activeStage.displayWord || activeStage.word || activeStage.syllables.join('');
+  return activeStage.targetWord || activeStage.word || activeStage.syllables.join('');
 }
 
 function currentLearningUnits() {
