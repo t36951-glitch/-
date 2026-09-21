@@ -27,9 +27,10 @@ let lastTime = performance.now();
 
 const STAGE_STORAGE_KEY = 'letter-kingdom-teacher-stages';
 const ACTIVE_STAGE_STORAGE_KEY = 'letter-kingdom-active-stage';
+const DEFAULT_DISTRACTOR_COUNT = 3;
 const DEFAULT_STAGE = {
   id: 'stage-1', stageNumber: 1, word: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ',
-  hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true
+  hint: '빨갛고 맛있는 과일이에요.', locked: false, active: true, protected: true, distractorCount: DEFAULT_DISTRACTOR_COUNT
 };
 const BOSS_STAGE = { id: 'stage-15', stageNumber: 15, word: '사과', displayWord: '보스 스테이지', targetWord: '사과', syllables: ['사', '과'], learningMode: 'syllable', consonant: 'ㅅ', hint: '문제를 풀어 보스를 정화해요.', hintText: '문제를 풀어 보스를 정화해요.', locked: false, active: false, protected: false, bossReserved: true, stageGroup: '초성 복습', stageType: 'boss', displayName: '보스 스테이지', isBossStage: true, isFixedStage: true, isDeletable: false, isEditable: false, isPlayable: true, status: 'playable', mapId: 'boss-field-01', villageId: 'sparkle-village', monsterSetId: 'boss-monster-01', bossQuestionWords: ['사과', '다리', '자동차'] };
 const DEFAULT_BATCHIM_STAGE = { stageNumber: 16, consonant: 'ㄱ', word: '국', syllables: ['국'], hint: '따뜻하게 먹는 음식이에요.', learningMode: 'syllable', stageGroup: '받침 학습', stageType: 'normal', mapId: 'batchim-field-01', villageId: 'batchim-village', monsterSetId: 'batchim-monster-01' };
@@ -57,6 +58,8 @@ function splitHangulSyllables(value) {
 const HANGUL_INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 const HANGUL_MEDIALS = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'];
 const HANGUL_FINALS = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+const DISTRACTOR_SYLLABLES = ['나', '다', '라', '마', '바', '수', '소', '너', '모', '두', '기', '토', '하', '허', '코', '포', '자', '카', '타', '무', '도', '로'];
+const DISTRACTOR_JAMO = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ', 'ㅏ', 'ㅑ', 'ㅓ', 'ㅕ', 'ㅗ', 'ㅛ', 'ㅜ', 'ㅠ', 'ㅡ', 'ㅣ', 'ㅐ', 'ㅔ', 'ㅚ', 'ㅟ', 'ㅢ', 'ㅘ', 'ㅝ', 'ㅙ', 'ㅞ'];
 
 function learningUnitsForStage(stage) {
   if (stage.learningMode !== 'jamo') {
@@ -111,7 +114,8 @@ function normalizeStage(raw = {}) {
     hintText: safeHint || DEFAULT_STAGE.hint,
     locked: Boolean(raw.locked),
     active: raw.active === true,
-    protected: raw.protected === true
+    protected: raw.protected === true,
+    distractorCount: Math.max(0, Math.min(12, Number(raw.distractorCount ?? DEFAULT_DISTRACTOR_COUNT) || DEFAULT_DISTRACTOR_COUNT))
   };
 }
 
@@ -191,8 +195,8 @@ function persistStageLayouts() {
   try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(stageLayouts)); } catch (error) { /* localStorage may be unavailable */ }
 }
 
-function createLetterItems(units, positions = []) {
-  return units.map((unit, index) => ({
+function createLetterItems(units, positions = [], distractorTokens = [], distractorPositions = []) {
+  const targets = units.map((unit, index) => ({
     id: `stage-letter-${index}`,
     character: unit.label,
     unitId: unit.id,
@@ -204,13 +208,30 @@ function createLetterItems(units, positions = []) {
     unlocked: false,
     collected: false,
     disabled: false,
-    wobble: 0
+    wobble: 0,
+    source: 'target'
   }));
+  const distractors = distractorTokens.map((character, index) => ({
+    id: `stage-distractor-${index}`,
+    character,
+    unitId: null,
+    unitKind: 'distractor',
+    unitSyllableIndex: null,
+    x: distractorPositions[index]?.x ?? 560 + index * 150,
+    y: distractorPositions[index]?.y ?? 520 + index * 90,
+    protectedMonsterId: null,
+    unlocked: true,
+    collected: false,
+    disabled: false,
+    distractor: true,
+    wobble: 0,
+    source: 'distractor'
+  }));
+  return [...targets, ...distractors];
 }
 
-const ARCHER_SKILL_DETECTION_RANGE = 250;
 const ARCHER_SKILL_COOLDOWN = 15000;
-const ARCHER_SKILL_EFFECT_DURATION = 5000;
+const ARCHER_SKILL_EFFECT_DURATION = 1500;
 const ARCHER_SKILL_ARROW_DURATION = 1500;
 const MP_SETTINGS = {
   swordsman: { max: 2, recoverySeconds: 30 },
@@ -534,11 +555,8 @@ function resetSkillState() {
 
 function clearArcherSkillFocusIfOutOfRange(now = performance.now()) {
   if (profile.character !== 'archer' || !skillState.focusItemId) return;
-  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected);
-  const distance = target
-    ? Math.hypot(player.x - target.x, player.y + player.footOffsetY - target.y)
-    : Infinity;
-  if (!target || now >= skillState.focusUntil || distance > ARCHER_SKILL_DETECTION_RANGE) {
+  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected && item.source === 'target' && item.unitId === currentLearningUnit()?.id);
+  if (!target || now >= skillState.focusUntil) {
     skillState.focusItemId = null;
     skillState.focusUntil = 0;
     skillState.arrowUntil = 0;
@@ -1096,19 +1114,35 @@ function updateLearningQuizUi() {
   const units = currentLearningUnits();
   const current = currentLearningUnit();
   const position = Math.min(collectedLetters.length + 1, units.length || 1);
-  document.querySelector('#monster-question').textContent = `${activeStageWord()}의 ${position}번째 학습 단위는 무엇일까요?`;
-  const choices = [...new Set([current?.label, ...units.map((unit) => unit.label), '나', '다'].filter(Boolean))].slice(0, 3);
+  const noun = activeStage.learningMode === 'jamo' ? current?.kind === 'medial' ? '모음' : '자음' : '글자';
+  document.querySelector('#monster-question').textContent = `${activeStageWord()}의 ${position}번째 들어갈 ${noun}는 무엇일까요?`;
+  if (!current) {
+    monsterChoiceButtons.forEach((button) => { button.dataset.answer = ''; button.textContent = '—'; });
+    return;
+  }
+  const wrongCandidates = activeStage.learningMode === 'jamo' ? DISTRACTOR_JAMO : DISTRACTOR_SYLLABLES;
+  const wrongChoices = shuffleArray([...new Set([...wrongCandidates, ...units.map((unit) => unit.label)])]
+    .filter((label) => label !== current.label)).slice(0, 2);
+  const choices = shuffleArray([current.label, ...wrongChoices]);
+  const layout = stageLayouts[activeStage.id];
+  if (layout) {
+    layout.questionOptionOrder = choices;
+    layout.questionOptionTarget = current.id;
+    persistStageLayouts();
+  }
   monsterChoiceButtons.forEach((button, index) => {
-    button.dataset.answer = choices[index] || '나';
-    button.textContent = choices[index] || '나';
+    button.dataset.answer = choices[index] || '';
+    button.textContent = choices[index] || '—';
   });
 }
 
 function updateCollectionHud() {
   const units = currentLearningUnits();
+  const current = currentLearningUnit();
+  stageConsonantEl.textContent = current?.label || activeStage.consonant || '—';
   collectedLettersEl.textContent = collectedLetters.length ? collectedLetters.join(', ') : '아직 없어요';
   letterCountEl.textContent = `${collectedLetters.length}/${units.length}`;
-  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (currentLearningUnit()?.label || '없음');
+  nextLetterEl.textContent = challenge.status === 'complete' ? '없음' : (current?.label || '없음');
   wordStateEl.textContent = challenge.status === 'complete' ? `${activeStageWord()} 완성!` : '글자를 모아 보세요!';
   wordStateEl.classList.toggle('is-complete', challenge.status === 'complete');
   wordStateEl.classList.remove('is-wrong');
@@ -1157,6 +1191,7 @@ function openMonsterQuiz(monster = learningMonster) {
   monsterFeedback.textContent = '';
   monsterChoiceButtons.forEach((button) => button.classList.remove('is-wrong'));
   setMonsterChoicesDisabled(false);
+  updateLearningQuizUi();
   updateEnergyHud();
   monsterOverlay.hidden = false;
   showNotice('글자 몬스터가 길을 막고 있어요.', 1800);
@@ -1348,9 +1383,7 @@ function useLearningSkill() {
   }
   if (profile.character === 'archer') {
     const targetUnit = currentLearningUnit();
-    const target = availableLetterItems().find((item) => !item.collected && item.unitId === targetUnit?.id);
-    const footY = player.y + player.footOffsetY;
-    const distance = target ? Math.hypot(player.x - target.x, footY - target.y) : Infinity;
+    const target = availableLetterItems().find((item) => !item.collected && item.source === 'target' && item.unitId === targetUnit?.id);
     mp.current = Math.max(0, mp.current - 1);
     mp.recoveryElapsed = 0;
     persistMPState();
@@ -1360,8 +1393,8 @@ function useLearningSkill() {
     skillState.arrowUntil = 0;
     skillState.activeUntil = now;
     updateMPHud(); updateSkillHud(now);
-    if (!target || distance > ARCHER_SKILL_DETECTION_RANGE) {
-      showNotice('글자 감지에 실패했습니다.', 2200);
+    if (!target) {
+      showNotice('찾아야 할 글자가 아직 없어요.', 2200);
       return;
     }
     skillState.focusItemId = target.id;
@@ -1369,7 +1402,7 @@ function useLearningSkill() {
     skillState.arrowUntil = now + ARCHER_SKILL_ARROW_DURATION;
     skillState.activeUntil = skillState.focusUntil;
     updateSkillHud(now);
-    showNotice('글자 찾기가 켜졌어요!', 1500);
+    showNotice('목표 글자가 이 방향에 있어요.', 1500);
     playSkillSound();
     return;
   }
@@ -2089,6 +2122,26 @@ function stageSeed(stage, nonce = 0) {
   return Array.from(`${stage.id}:${stage.stageNumber}:${nonce}`).reduce((sum, character) => ((sum * 31) + character.charCodeAt(0)) % 2147483647, 17);
 }
 
+function createDistractorTokens(stage, units, count = stage.distractorCount ?? DEFAULT_DISTRACTOR_COUNT, nonce = 0) {
+  const targetLabels = new Set(units.map((unit) => unit.label));
+  const candidates = (stage.learningMode === 'jamo' ? DISTRACTOR_JAMO : DISTRACTOR_SYLLABLES).filter((token) => !targetLabels.has(token));
+  const random = seededRandom(stageSeed(stage, nonce + 91));
+  for (let index = candidates.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1));
+    [candidates[index], candidates[swap]] = [candidates[swap], candidates[index]];
+  }
+  return [...new Set(candidates)].slice(0, Math.min(count, candidates.length));
+}
+
+function shuffleArray(values) {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swap]] = [result[swap], result[index]];
+  }
+  return result;
+}
+
 function isValidSpawnPosition(x, y, reserved = [], radius = 34) {
   const footY = y + player.footOffsetY;
   if (x < 70 || y < 70 || x > WORLD.width - 70 || y > WORLD.height - 70) return false;
@@ -2107,7 +2160,11 @@ function createStageLayout(stage, regenerate = false) {
   const previous = stageLayouts[key];
   const nonce = regenerate ? Number(previous?.nonce || 0) + 1 : Number(previous?.nonce || 0);
   const units = learningUnitsForStage(stage);
-  if (!regenerate && previous?.letters?.length === units.length && previous?.monsters?.length === units.length + 3) return previous;
+  const targetTokens = units.map((unit) => unit.label);
+  const distractorCount = stage.distractorCount ?? DEFAULT_DISTRACTOR_COUNT;
+  const layoutMatchesStage = previous?.targetTokens?.join('|') === targetTokens.join('|')
+    && previous?.learningMode === stage.learningMode;
+  if (!regenerate && layoutMatchesStage && previous?.letters?.length === units.length && previous?.monsters?.length === units.length + 3 && Array.isArray(previous.distractorTokens) && previous.distractorTokens.length === distractorCount) return previous;
   const random = seededRandom(stageSeed(stage, nonce));
   const reserved = [];
   const letters = [];
@@ -2157,7 +2214,20 @@ function createStageLayout(stage, regenerate = false) {
     const extra = takePosition(170);
     monsters.push({ id: `additional-monster-${index}`, x: extra.x, y: extra.y, protectedLetterIndex: null });
   }
-  const layout = { nonce, letters, monsters };
+  const distractorTokens = createDistractorTokens(stage, units, distractorCount, nonce);
+  const distractorPositions = distractorTokens.map(() => takePosition(150));
+  const layout = {
+    nonce,
+    stageLayoutSeed: stageSeed(stage, nonce),
+    learningMode: stage.learningMode,
+    targetTokens,
+    targetPositions: letters,
+    letters,
+    monsters,
+    distractorTokens,
+    distractorPositions,
+    questionOptionOrder: []
+  };
   stageLayouts[key] = layout;
   persistStageLayouts();
   return layout;
@@ -2165,7 +2235,7 @@ function createStageLayout(stage, regenerate = false) {
 
 function initializeStageEntities(stage, regenerate = false) {
   const layout = createStageLayout(stage, regenerate);
-  letterItems = createLetterItems(learningUnitsForStage(stage), layout.letters);
+  letterItems = createLetterItems(learningUnitsForStage(stage), layout.letters, layout.distractorTokens || [], layout.distractorPositions || []);
   learningMonsters = layout.monsters.map((monster) => createLearningMonster(monster.id, monster.x, monster.y, monster.protectedLetterIndex));
   learningMonster = learningMonsters[0] || createLearningMonster('learning-monster-0', 1040, 1050);
 }
@@ -2793,7 +2863,12 @@ function resetChallenge({ regenerateLayout = true } = {}) {
     savedStage.completed = false;
     persistTeacherStages();
   }
-  letterItems.forEach((item) => { item.collected = false; item.disabled = false; item.unlocked = false; item.wobble = 0; });
+  letterItems.forEach((item) => {
+    item.collected = false;
+    item.disabled = false;
+    item.unlocked = item.source === 'distractor';
+    item.wobble = 0;
+  });
   monsterReward.active = false;
   monsterReward.collected = false;
   monsterReward.dropped = false;
