@@ -115,7 +115,7 @@ function normalizeStage(raw = {}) {
     locked: Boolean(raw.locked),
     active: raw.active === true,
     protected: raw.protected === true,
-    distractorCount: Math.max(0, Math.min(12, Number(raw.distractorCount ?? DEFAULT_DISTRACTOR_COUNT) || DEFAULT_DISTRACTOR_COUNT))
+    distractorCount: Math.max(3, Math.min(12, Number(raw.distractorCount ?? DEFAULT_DISTRACTOR_COUNT) || DEFAULT_DISTRACTOR_COUNT))
   };
 }
 
@@ -266,9 +266,10 @@ function availableLetterItems() {
 }
 // Safe open grass near the central path: clear of the current trees, rocks, fence, and river.
 const treasureChest = { x: 860, y: 1080, opened: false, sparkle: 0 };
-function createLearningMonster(id, x, y, protectedLetterIndex = null) {
+function createLearningMonster(id, x, y, protectedLetterIndex = null, protectedDistractorIndex = null) {
   return {
-    id, x, y, protectedLetterIndex, isAdditional: protectedLetterIndex === null,
+    id, x, y, protectedLetterIndex, protectedDistractorIndex,
+    isAdditional: protectedLetterIndex === null && protectedDistractorIndex !== null,
     resolved: false, wobble: 0, hp: 3, maxHp: 3, state: 'idle',
     hasParticipatedInCombat: false, hasTakenDamage: false, isPurified: false, isDefeated: false,
     warningUntil: 0, nextAttackAt: 0, attackActiveUntil: 0, attackToken: 0,
@@ -2161,7 +2162,7 @@ function createStageLayout(stage, regenerate = false) {
   const nonce = regenerate ? Number(previous?.nonce || 0) + 1 : Number(previous?.nonce || 0);
   const units = learningUnitsForStage(stage);
   const targetTokens = units.map((unit) => unit.label);
-  const distractorCount = stage.distractorCount ?? DEFAULT_DISTRACTOR_COUNT;
+  const distractorCount = Math.max(3, stage.distractorCount ?? DEFAULT_DISTRACTOR_COUNT);
   const layoutMatchesStage = previous?.targetTokens?.join('|') === targetTokens.join('|')
     && previous?.learningMode === stage.learningMode;
   if (!regenerate && layoutMatchesStage && previous?.letters?.length === units.length && previous?.monsters?.length === units.length + 3 && Array.isArray(previous.distractorTokens) && previous.distractorTokens.length === distractorCount) return previous;
@@ -2208,14 +2209,20 @@ function createStageLayout(stage, regenerate = false) {
     const letter = takePosition(190);
     letters.push({ x: letter.x, y: letter.y });
     const monster = takeNearbyPosition(letter);
-    monsters.push({ id: `protected-monster-${index}`, x: monster.x, y: monster.y, protectedLetterIndex: index });
+    monsters.push({ id: `protected-monster-${index}`, x: monster.x, y: monster.y, protectedLetterIndex: index, protectedDistractorIndex: null });
   });
-  for (let index = 0; index < 3; index += 1) {
-    const extra = takePosition(170);
-    monsters.push({ id: `additional-monster-${index}`, x: extra.x, y: extra.y, protectedLetterIndex: null });
-  }
   const distractorTokens = createDistractorTokens(stage, units, distractorCount, nonce);
   const distractorPositions = distractorTokens.map(() => takePosition(150));
+  distractorPositions.slice(0, 3).forEach((distractor, index) => {
+    const guardian = takeNearbyPosition(distractor);
+    monsters.push({
+      id: `additional-monster-${index}`,
+      x: guardian.x,
+      y: guardian.y,
+      protectedLetterIndex: null,
+      protectedDistractorIndex: index
+    });
+  });
   const layout = {
     nonce,
     stageLayoutSeed: stageSeed(stage, nonce),
@@ -2226,6 +2233,10 @@ function createStageLayout(stage, regenerate = false) {
     monsters,
     distractorTokens,
     distractorPositions,
+    distractorGuardLinks: distractorPositions.slice(0, 3).map((_, index) => ({
+      monsterId: `additional-monster-${index}`,
+      distractorId: `stage-distractor-${index}`
+    })),
     questionOptionOrder: []
   };
   stageLayouts[key] = layout;
@@ -2236,7 +2247,13 @@ function createStageLayout(stage, regenerate = false) {
 function initializeStageEntities(stage, regenerate = false) {
   const layout = createStageLayout(stage, regenerate);
   letterItems = createLetterItems(learningUnitsForStage(stage), layout.letters, layout.distractorTokens || [], layout.distractorPositions || []);
-  learningMonsters = layout.monsters.map((monster) => createLearningMonster(monster.id, monster.x, monster.y, monster.protectedLetterIndex));
+  learningMonsters = layout.monsters.map((monster) => createLearningMonster(
+    monster.id,
+    monster.x,
+    monster.y,
+    monster.protectedLetterIndex,
+    monster.protectedDistractorIndex ?? null
+  ));
   learningMonster = learningMonsters[0] || createLearningMonster('learning-monster-0', 1040, 1050);
 }
 
