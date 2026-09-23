@@ -21,7 +21,7 @@ const profile = {
 let gameStarted = Boolean(savedProfile?.started);
 const camera = { x: 0, y: 0 };
 const keys = new Set();
-const touchVector = { x: 0, y: 0 };
+const touchVector = { x: 0, y: 0, active: false };
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 let lastTime = performance.now();
 
@@ -278,6 +278,8 @@ function createLearningMonster(id, x, y, protectedLetterIndex = null, protectedD
 }
 let learningMonster = createLearningMonster('learning-monster-0', 1040, 1050);
 let learningMonsters = [learningMonster];
+let selectedMonsterId = null;
+let touchPointerId = null;
 const combat = { current: 3, max: 3, inCombat: false, lastDamageAt: 0, recoveryElapsed: 0 };
 const BASIC_ATTACK_INTERVAL = 1000;
 const MONSTER_ATTACK_INTERVAL = BASIC_ATTACK_INTERVAL / 1.2;
@@ -1623,6 +1625,32 @@ function getFacingVector() {
   return player.facingVector;
 }
 
+function selectedMonster() {
+  const monster = learningMonsters.find((candidate) => candidate.id === selectedMonsterId);
+  if (!monster || monster.resolved || monster.isDefeated || monster.hp <= 0) {
+    selectedMonsterId = null;
+    return null;
+  }
+  return monster;
+}
+
+function setAttackDirectionToward(monster) {
+  if (!monster) return getFacingVector();
+  const dx = monster.x - player.x;
+  const dy = monster.y - (player.y + player.footOffsetY);
+  player.facingVector = quantizeDirection(dx, dy);
+  player.facing = Math.abs(player.facingVector.x) > Math.abs(player.facingVector.y)
+    ? player.facingVector.x > 0 ? 'right' : 'left'
+    : player.facingVector.y > 0 ? 'down' : 'up';
+  return player.facingVector;
+}
+
+function isGameplayInputBlocked() {
+  return !gameStarted || automaticRest.active || restState.promptOpen || monsterQuizOpen || bossState.active
+    || stageTransition.promptOpen || !restartPrompt.hidden || !successOverlay.hidden || !hintOverlay.hidden
+    || !menuPanel.hidden || !archivePanel.hidden || !teacherPanel.hidden;
+}
+
 function isTargetInAttackDirection(monster = learningMonster) {
   const dx = monster.x - player.x;
   const dy = monster.y - (player.y + player.footOffsetY);
@@ -1699,6 +1727,7 @@ function damageTrainingMonster(monster = learningMonster, amount = 1) {
     monster.isDefeated = true;
     monster.isPurified = true;
     monster.resolved = true;
+    if (selectedMonsterId === monster.id) selectedMonsterId = null;
     monster.state = 'friend';
     const protectedItem = monster.protectedLetterIndex === null ? null : letterItems[monster.protectedLetterIndex];
     if (protectedItem) {
@@ -1735,11 +1764,15 @@ function queueProjectile(type) {
 
 function useBasicAttack() {
   const now = performance.now();
-  if (!gameStarted || isBossStage() || isPlayerInVillage() || automaticRest.active || restState.promptOpen || monsterQuizOpen || energy.current === 0 || now < attackState.cooldownUntil) return;
+  if (isGameplayInputBlocked() || isBossStage() || isPlayerInVillage() || energy.current === 0 || now < attackState.cooldownUntil) return;
+  const target = selectedMonster();
+  if (target) setAttackDirectionToward(target);
   attackState.cooldownUntil = now + BASIC_ATTACK_INTERVAL;
   if (profile.character === 'swordsman') {
-    const target = learningMonsters.find((monster) => !monster.resolved && Math.hypot(player.x - monster.x, player.y + player.footOffsetY - monster.y) <= 125 && isTargetInAttackDirection(monster));
-    if (target) damageTrainingMonster(target, 1);
+    const attackTarget = target && Math.hypot(player.x - target.x, player.y + player.footOffsetY - target.y) <= 125
+      ? target
+      : !target ? learningMonsters.find((monster) => !monster.resolved && Math.hypot(player.x - monster.x, player.y + player.footOffsetY - monster.y) <= 125 && isTargetInAttackDirection(monster)) : null;
+    if (attackTarget) damageTrainingMonster(attackTarget, 1);
     addCombatEffect(player.x, player.y - 12, 'slash', getFacingVector());
   } else if (profile.character === 'archer') {
     queueProjectile('arrow');
@@ -2321,33 +2354,88 @@ window.addEventListener('keydown', (event) => {
 });
 window.addEventListener('keyup', (event) => keys.delete(event.key.toLowerCase()));
 
-function setTouchFromEvent(event) {
-  const rect = document.querySelector('#joystick').getBoundingClientRect();
-  const touch = event.touches?.[0] || event;
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
-  const max = rect.width * 0.27;
-  let dx = touch.clientX - cx; let dy = touch.clientY - cy;
-  const length = Math.hypot(dx, dy);
-  if (length > max) { dx = dx / length * max; dy = dy / length * max; }
-  touchVector.x = dx / max; touchVector.y = dy / max;
-  document.querySelector('.joy-stick').style.transform = `translate(${dx}px, ${dy}px)`;
+function isTouchExcludedTarget(target) {
+  return target instanceof Element && Boolean(target.closest('button, input, textarea, select, [role="dialog"], .menu-panel, .archive-panel, .teacher-panel, .hint-overlay, .boss-overlay, .monster-overlay, .rest-prompt, .restart-prompt, .next-stage-prompt, .success-overlay'));
 }
-const joystick = document.querySelector('#joystick');
-joystick.addEventListener('pointerdown', (event) => { joystick.setPointerCapture(event.pointerId); setTouchFromEvent(event); });
-joystick.addEventListener('pointermove', (event) => { if (event.buttons) setTouchFromEvent(event); });
-joystick.addEventListener('pointerup', resetTouch);
-joystick.addEventListener('pointercancel', resetTouch);
-function resetTouch() { touchVector.x = 0; touchVector.y = 0; document.querySelector('.joy-stick').style.transform = ''; }
+
+function touchWorldPoint(event) {
+  const rect = shell.getBoundingClientRect();
+  return { x: event.clientX - rect.left + camera.x, y: event.clientY - rect.top + camera.y };
+}
+
+function setTouchDirection(event) {
+  const point = touchWorldPoint(event);
+  const dx = point.x - player.x;
+  const dy = point.y - player.y;
+  if (Math.hypot(dx, dy) < 12) {
+    touchVector.x = 0;
+    touchVector.y = 0;
+    return;
+  }
+  const snapped = quantizeDirection(dx, dy);
+  touchVector.x = snapped.x;
+  touchVector.y = snapped.y;
+}
+
+function resetTouch() {
+  touchVector.x = 0;
+  touchVector.y = 0;
+  touchVector.active = false;
+  touchPointerId = null;
+}
+
+function selectMonsterAtPoint(point) {
+  if (isGameplayInputBlocked()) return false;
+  const candidates = learningMonsters
+    .filter((monster) => !monster.resolved && !monster.isDefeated && monster.hp > 0)
+    .map((monster) => ({ monster, distance: Math.hypot(point.x - monster.x, point.y - monster.y) }))
+    .filter(({ distance }) => distance <= 58)
+    .sort((a, b) => a.distance - b.distance);
+  const target = candidates[0]?.monster;
+  if (!target) return false;
+  selectedMonsterId = target.id;
+  showNotice('몬스터를 선택했어요. 공격 버튼을 눌러 주세요.', 1800);
+  return true;
+}
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (event.button !== undefined && event.button !== 0) return;
+  if (isTouchExcludedTarget(event.target) || isGameplayInputBlocked()) return;
+  const point = touchWorldPoint(event);
+  if (selectMonsterAtPoint(point)) {
+    event.preventDefault();
+    return;
+  }
+  touchPointerId = event.pointerId;
+  touchVector.active = true;
+  canvas.setPointerCapture?.(event.pointerId);
+  setTouchDirection(event);
+  event.preventDefault();
+});
+canvas.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== touchPointerId || !touchVector.active || isGameplayInputBlocked()) return;
+  setTouchDirection(event);
+  event.preventDefault();
+});
+canvas.addEventListener('pointerup', (event) => {
+  if (event.pointerId === touchPointerId) resetTouch();
+});
+canvas.addEventListener('pointercancel', (event) => {
+  if (event.pointerId === touchPointerId) resetTouch();
+});
+window.addEventListener('pointerup', (event) => {
+  if (event.pointerId === touchPointerId) resetTouch();
+});
 
 function direction() {
-  let x = touchVector.x; let y = touchVector.y;
+  if (touchVector.active) return { x: touchVector.x, y: touchVector.y };
+  let x = 0; let y = 0;
   if (keys.has('a') || keys.has('arrowleft')) x -= 1;
   if (keys.has('d') || keys.has('arrowright')) x += 1;
   if (keys.has('w') || keys.has('arrowup')) y -= 1;
   if (keys.has('s') || keys.has('arrowdown')) y += 1;
   const len = Math.hypot(x, y);
-  return len ? { x: x / Math.max(1, len), y: y / Math.max(1, len) } : { x: 0, y: 0 };
+  return len ? { x: x / len, y: y / len } : { x: 0, y: 0 };
 }
 
 function quantizeDirection(x, y) {
@@ -2501,7 +2589,14 @@ function drawLearningMonster() {
     ctx.restore();
     return;
   }
-  if (near && energy.current > 0 && !automaticRest.active) {
+  if (learningMonster.id === selectedMonsterId) {
+    ctx.strokeStyle = '#f2c65e';
+    ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.ellipse(x, y + 39, 49, 16, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#e6a841';
+    ctx.font = 'bold 18px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('선택됨', x, y - 98);
+  } else if (near && energy.current > 0 && !automaticRest.active) {
     ctx.fillStyle = learningMonster.state === 'warning' || learningMonster.state === 'attack'
       ? 'rgba(255, 111, 98, .26)' : 'rgba(255, 222, 104, .24)';
     ctx.beginPath(); ctx.arc(x, y, 55 + Math.sin(now / 180) * 5, 0, Math.PI * 2); ctx.fill();
@@ -2880,6 +2975,8 @@ function resetChallenge({ regenerateLayout = true } = {}) {
     savedStage.completed = false;
     persistTeacherStages();
   }
+  selectedMonsterId = null;
+  resetTouch();
   letterItems.forEach((item) => {
     item.collected = false;
     item.disabled = false;
@@ -2930,6 +3027,7 @@ function resetChallenge({ regenerateLayout = true } = {}) {
     learningMonster.hasTakenDamage = false;
     learningMonster.isPurified = false;
     learningMonster.isDefeated = false;
+    learningMonster.protectedDistractorIndex ??= null;
     learningMonster.quizResolved = false;
     learningMonster.outOfRangeSince = 0;
     learningMonster.recoveryElapsed = 0;
@@ -3033,7 +3131,8 @@ function update(delta) {
   });
   learningMonster = learningMonsters[0] || learningMonster;
   enforceVillageSafety();
-  const movementLocked = monsterQuizOpen || bossState.active || automaticRest.active || stageTransition.promptOpen || !restartPrompt.hidden || energy.current === 0 || now < wrongContact.moveLockUntil;
+  const movementLocked = isGameplayInputBlocked() || energy.current === 0 || now < wrongContact.moveLockUntil;
+  if (movementLocked && touchVector.active) resetTouch();
   const dir = movementLocked ? { x: 0, y: 0 } : direction();
   if (dir.x || dir.y) {
     const nextX = player.x + dir.x * player.speed * delta;
@@ -3105,7 +3204,7 @@ function drawArcherSkillOverlay() {
   const now = performance.now();
   clearArcherSkillFocusIfOutOfRange(now);
   if (profile.character !== 'archer' || now >= skillState.arrowUntil || !skillState.focusItemId) return;
-  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected);
+  const target = availableLetterItems().find((item) => item.id === skillState.focusItemId && !item.collected && item.source === 'target' && item.unitId === currentLearningUnit()?.id);
   if (!target) return;
   const w = shell.clientWidth; const h = shell.clientHeight;
   const startX = player.x - camera.x; const startY = player.y - camera.y;
