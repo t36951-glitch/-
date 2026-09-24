@@ -1,5 +1,32 @@
 import './style.css';
 
+const ASSET_URLS = {
+  characters: {
+    swordsman: new URL('../assets/characters/hero-knight-idle.png', import.meta.url).href,
+    archer: new URL('../assets/characters/hero-archer-idle.png', import.meta.url).href,
+    mage: new URL('../assets/characters/hero-mage-idle.png', import.meta.url).href
+  },
+  monsters: {
+    basic: new URL('../assets/monsters/monster-basic-01.png', import.meta.url).href,
+    friend: new URL('../assets/monsters/monster-friend.png', import.meta.url).href
+  },
+  terrain: {
+    background: new URL('../assets/terrain/stage-16-ground.png', import.meta.url).href
+  }
+};
+const loadedAssets = {};
+
+function loadImageAsset(key, source) {
+  const image = new Image();
+  image.onload = () => { loadedAssets[key] = image; };
+  image.onerror = () => { loadedAssets[key] = null; };
+  image.src = source;
+}
+
+Object.entries(ASSET_URLS.characters).forEach(([key, source]) => loadImageAsset(`character-${key}`, source));
+Object.entries(ASSET_URLS.monsters).forEach(([key, source]) => loadImageAsset(`monster-${key}`, source));
+Object.entries(ASSET_URLS.terrain).forEach(([key, source]) => loadImageAsset(`terrain-${key}`, source));
+
 const canvas = document.querySelector('#game-canvas');
 const ctx = canvas.getContext('2d');
 const shell = document.querySelector('#game-shell');
@@ -2579,10 +2606,15 @@ function drawLearningMonster() {
   ctx.save();
   if (learningMonster.resolved) {
     ctx.globalAlpha = .65 + Math.sin(now / 160) * .2;
-    ctx.fillStyle = '#fff2a1';
-    ctx.beginPath(); ctx.arc(x, y, 38 + Math.sin(now / 180) * 7, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fffbe1';
-    ctx.beginPath(); ctx.arc(x, y - 4, 22, 0, Math.PI * 2); ctx.fill();
+    const friendImage = loadedAssets['monster-friend'];
+    if (friendImage) {
+      ctx.drawImage(friendImage, x - 42, y - 50, 84, 84);
+    } else {
+      ctx.fillStyle = '#fff2a1';
+      ctx.beginPath(); ctx.arc(x, y, 38 + Math.sin(now / 180) * 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fffbe1';
+      ctx.beginPath(); ctx.arc(x, y - 4, 22, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.fillStyle = '#d29b55';
     ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
     ctx.textAlign = 'center'; ctx.fillText('빛의 친구', x, y + 59);
@@ -2603,6 +2635,26 @@ function drawLearningMonster() {
   }
   ctx.fillStyle = 'rgba(61, 98, 73, .18)';
   ctx.beginPath(); ctx.ellipse(x, y + 38, 42, 12, 0, 0, Math.PI * 2); ctx.fill();
+  const monsterImage = loadedAssets[learningMonster.resolved ? 'monster-friend' : 'monster-basic'];
+  if (monsterImage) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(monsterImage, x - 42, y - 50, 84, 84);
+    ctx.fillStyle = '#5b8562';
+    ctx.font = 'bold 15px Jua, "Apple SD Gothic Neo", sans-serif';
+    ctx.textAlign = 'center'; ctx.fillText('훈련 몬스터', x, y + 59);
+    const hpWidth = 86;
+    for (let index = 0; index < learningMonster.maxHp; index += 1) {
+      ctx.fillStyle = index < learningMonster.hp ? '#e96f72' : '#e5d9d2';
+      ctx.fillRect(x - hpWidth / 2 + index * 30, y - 75, 24, 7);
+    }
+    if (learningMonster.state === 'warning') {
+      ctx.fillStyle = '#f36f68';
+      ctx.font = 'bold 28px Jua, "Apple SD Gothic Neo", sans-serif';
+      ctx.fillText('!', x, y - 88 - Math.sin(now / 100) * 5);
+    }
+    ctx.restore();
+    return;
+  }
   ctx.fillStyle = learningMonster.state === 'attack' ? '#e79b8f' : '#91c5a0';
   ctx.beginPath(); ctx.arc(x, y, 34, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#c9e8b9';
@@ -3168,7 +3220,10 @@ function drawWorld() {
   clearArcherSkillFocusIfOutOfRange(performance.now());
   ctx.clearRect(0, 0, w, h);
   ctx.save(); ctx.translate(-camera.x, -camera.y);
-  ctx.fillStyle = '#bde6b7'; ctx.fillRect(0, 0, WORLD.width, WORLD.height);
+  const backgroundImage = loadedAssets['terrain-background'];
+  const backgroundPattern = backgroundImage ? ctx.createPattern(backgroundImage, 'repeat') : null;
+  ctx.fillStyle = backgroundPattern || '#bde6b7';
+  ctx.fillRect(0, 0, WORLD.width, WORLD.height);
   // gentle grass tiles
   ctx.fillStyle = 'rgba(255,255,255,.12)';
   for (let x = 0; x < WORLD.width; x += 80) for (let y = 0; y < WORLD.height; y += 80) {
@@ -3244,12 +3299,18 @@ function drawPlayer() {
   const bounce = Math.sin(player.bob) * (direction().x || direction().y ? 3 : 0);
   const x = player.x; const y = player.y + bounce;
   ctx.fillStyle = 'rgba(50,80,60,.2)'; ctx.beginPath(); ctx.ellipse(x, y + 30, 29, 11, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = preset.body; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill();
-  ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = preset.hair; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke();
-  ctx.fillStyle = preset.accent; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
+  const characterImage = loadedAssets[`character-${profile.character}`];
+  if (characterImage) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(characterImage, x - 43, y - 72, 86, 114);
+  } else {
+    ctx.fillStyle = preset.body; roundedRect(x - 22, y - 2, 44, 48, 15); ctx.fill();
+    ctx.fillStyle = '#f6c69f'; ctx.beginPath(); ctx.arc(x, y - 22, 25, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = preset.hair; ctx.beginPath(); ctx.arc(x, y - 29, 25, Math.PI, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#283b63'; ctx.beginPath(); ctx.arc(x - 8, y - 20, 3, 0, Math.PI * 2); ctx.arc(x + 8, y - 20, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#f08a76'; ctx.beginPath(); ctx.arc(x, y - 12, 5, 0, Math.PI); ctx.stroke();
+    ctx.fillStyle = preset.accent; ctx.beginPath(); ctx.arc(x + 19, y + 8, 8, 0, Math.PI * 2); ctx.fill();
+  }
   const shieldUntil = Math.max(wrongContact.shieldUntil, skillState.shieldUntil);
   if (performance.now() < shieldUntil) {
     const remaining = (shieldUntil - performance.now()) / 1000;
